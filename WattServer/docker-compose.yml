@@ -3,6 +3,7 @@ services:
     image: timescale/timescaledb:2.17.2-pg16
     restart: unless-stopped
     environment:
+      NO_TS_TUNE: "true"
       POSTGRES_DB: energy
       POSTGRES_USER: energy
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?zet POSTGRES_PASSWORD in .env}
