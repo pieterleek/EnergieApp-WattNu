@@ -1,0 +1,89 @@
+services:
+  timescaledb:
+    image: timescale/timescaledb:2.17.2-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: energy
+      POSTGRES_USER: energy
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?zet POSTGRES_PASSWORD in .env}
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:?zet GRAFANA_DB_PASSWORD in .env}
+      TZ: Europe/Amsterdam
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+      # Losse bestanden, zodat de eigen init-scripts van het image blijven staan.
+      - ./db/init/01-schema.sql:/docker-entrypoint-initdb.d/101-schema.sql:ro
+      - ./db/init/02-grafana-role.sh:/docker-entrypoint-initdb.d/102-grafana-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U energy -d energy"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  telegraf:
+    image: telegraf:1.32
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      MODBUS_HOST: ${MODBUS_HOST:?zet MODBUS_HOST in .env}
+      MODBUS_PORT: ${MODBUS_PORT:-502}
+      MODBUS_MODE: ${MODBUS_MODE:-TCP}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?zet GRAFANA_ADMIN_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/wattnu.json
+      GF_DATE_FORMATS_DEFAULT_TIMEZONE: Europe/Amsterdam
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+  # Alleen-lezen API voor WattNu. Gebruikt dezelfde leesrol als Grafana.
+  api:
+    build: ./api
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    ports:
+      # Alleen lokaal: tailscale serve is de enige weg naar binnen.
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    environment:
+      API_TOKEN: ${API_TOKEN:?zet API_TOKEN in .env}
+      DATABASE_DSN: host=timescaledb port=5432 dbname=energy user=grafana_ro password=${GRAFANA_DB_PASSWORD}
+      NOTIFICATION_DB_PATH: /data/notifications.sqlite3
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+    volumes:
+      - api-data:/data
+
+  # Eenmalige verbindingstest: docker compose run --rm check
+  check:
+    profiles: ["tools"]
+    image: python:3.12-slim
+    environment:
+      MODBUS_HOST: ${MODBUS_HOST:?zet MODBUS_HOST in .env}
+      MODBUS_PORT: ${MODBUS_PORT:-502}
+      MODBUS_SLAVE: ${MODBUS_SLAVE:-1}
+    volumes:
+      - ./tools/check_meter.py:/check_meter.py:ro
+    command: sh -c "pip install -q --root-user-action=ignore pymodbus==3.16.2 && python /check_meter.py"
+
+volumes:
+  timescale-data:
+  grafana-data:
+  api-data:
