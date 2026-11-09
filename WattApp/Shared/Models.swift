@@ -67,6 +67,22 @@ struct Peak: Codable, Sendable, Identifiable {
     var id: Date { time }
 }
 
+struct GridLoadPoint: Codable, Sendable, Identifiable {
+    var time: Date
+    var loadMw: Double
+
+    var id: Date { time }
+}
+
+struct GridLoadResponse: Codable, Sendable {
+    var generatedAt: Date
+    var intervalMinutes: Int
+    var source: String
+    var license: String
+    var stale: Bool
+    var points: [GridLoadPoint]
+}
+
 struct TelegramSettings: Encodable, Sendable {
     let enabled: Bool
     let phaseAlerts: Bool

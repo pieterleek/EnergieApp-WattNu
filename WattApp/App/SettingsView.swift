@@ -48,7 +48,7 @@ struct SettingsView: View {
             Section {
                 Toggle("Telegram-meldingen", isOn: $telegramEnabled)
                 if telegramEnabled {
-                    Toggle("10 A per fase of retour", isOn: $telegramPhaseAlerts)
+                    Toggle("14 ampère, langer dan 1 minuut", isOn: $telegramPhaseAlerts)
                     Toggle("Ontbrekende meterdata", isOn: $telegramStaleAlerts)
                     Toggle("Daglimiet", isOn: $telegramDailyLimitEnabled)
                     if telegramDailyLimitEnabled {
@@ -73,7 +73,7 @@ struct SettingsView: View {
             } header: {
                 Text("Meldingen")
             } footer: {
-                Text("De 10 A-grens geldt apart voor L1, L2 en L3. Een melding wordt pas opnieuw actief nadat de fase onder 9 A is geweest.")
+                Text("De grens geldt apart voor L1, L2 en L3, voor afname en teruglevering. WattNu meldt pas na één volle minuut boven 14 ampère en wordt opnieuw actief onder 13 ampère.")
             }
             Section {
                 Toggle("Pieter-modus", isOn: $pieterMode)

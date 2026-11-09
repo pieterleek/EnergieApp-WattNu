@@ -16,8 +16,9 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-PHASE_LIMIT_AMPS = 10.0
-PHASE_RESET_AMPS = 9.0
+PHASE_LIMIT_AMPS = 14.0
+PHASE_RESET_AMPS = 13.0
+PHASE_HOLD_DURATION = timedelta(minutes=1)
 RETRY_AFTER = timedelta(minutes=5)
 LOCAL_TZ = ZoneInfo("Europe/Amsterdam")
 
@@ -59,6 +60,7 @@ class NotificationSettings:
 class AlertState:
     active: bool = False
     last_attempt_at: datetime | None = None
+    condition_started_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -98,9 +100,17 @@ class NotificationStore:
                     active INTEGER NOT NULL DEFAULT 0,
                     last_attempt_at TEXT,
                     last_sent_at TEXT,
+                    condition_started_at TEXT,
                     updated_at TEXT NOT NULL
                 );
             """)
+            columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(alert_state)")
+            }
+            if "condition_started_at" not in columns:
+                connection.execute(
+                    "ALTER TABLE alert_state ADD COLUMN condition_started_at TEXT"
+                )
 
     def update_settings(self, values: dict) -> None:
         with self._connect() as connection:
@@ -140,11 +150,39 @@ class NotificationStore:
     def alert_state(self, key: str) -> AlertState:
         with self._connect() as connection:
             row = connection.execute("""
-                SELECT active, last_attempt_at FROM alert_state WHERE alert_key = ?
+                SELECT active, last_attempt_at, condition_started_at
+                FROM alert_state WHERE alert_key = ?
             """, (key,)).fetchone()
         if row is None:
             return AlertState()
-        return AlertState(bool(row["active"]), _parse(row["last_attempt_at"]))
+        return AlertState(
+            bool(row["active"]),
+            _parse(row["last_attempt_at"]),
+            _parse(row["condition_started_at"]),
+        )
+
+    def start_condition(self, key: str, started_at: datetime) -> None:
+        stamp = _iso(started_at)
+        with self._connect() as connection:
+            connection.execute("""
+                INSERT INTO alert_state (
+                    alert_key, active, condition_started_at, updated_at
+                ) VALUES (?, 0, ?, ?)
+                ON CONFLICT(alert_key) DO UPDATE SET
+                    condition_started_at = coalesce(
+                        alert_state.condition_started_at,
+                        excluded.condition_started_at
+                    ),
+                    updated_at = excluded.updated_at
+            """, (key, stamp, stamp))
+
+    def cancel_pending(self, key: str) -> None:
+        with self._connect() as connection:
+            connection.execute("""
+                UPDATE alert_state
+                SET condition_started_at = NULL, updated_at = ?
+                WHERE alert_key = ? AND active = 0
+            """, (_iso(_now()), key))
 
     def record_attempt(self, key: str, attempted_at: datetime) -> None:
         stamp = _iso(attempted_at)
@@ -162,7 +200,8 @@ class NotificationStore:
         with self._connect() as connection:
             connection.execute("""
                 UPDATE alert_state
-                SET active = 1, last_sent_at = ?, updated_at = ?
+                SET active = 1, last_sent_at = ?, condition_started_at = NULL,
+                    updated_at = ?
                 WHERE alert_key = ?
             """, (stamp, stamp, key))
 
@@ -170,7 +209,8 @@ class NotificationStore:
         with self._connect() as connection:
             connection.execute("""
                 UPDATE alert_state
-                SET active = 0, last_attempt_at = NULL, updated_at = ?
+                SET active = 0, last_attempt_at = NULL,
+                    condition_started_at = NULL, updated_at = ?
                 WHERE alert_key = ?
             """, (_iso(_now()), key))
 
@@ -303,6 +343,11 @@ class NotificationService:
                 await asyncio.to_thread(self.store.clear_alert, "meter-stale")
 
         if snapshot.get("stale", True):
+            for phase in ("L1", "L2", "L3"):
+                for flow in ("import", "return"):
+                    await asyncio.to_thread(
+                        self.store.cancel_pending, f"phase:{phase}:{flow}"
+                    )
             return
 
         if settings.phase_alerts:
@@ -344,25 +389,50 @@ class NotificationService:
             await asyncio.to_thread(self.store.clear_alert, import_key)
             await asyncio.to_thread(self.store.clear_alert, return_key)
             return
-        if amps < PHASE_LIMIT_AMPS:
-            return
 
         if flow == "return":
             await asyncio.to_thread(self.store.clear_alert, import_key)
+            if amps < PHASE_LIMIT_AMPS:
+                await asyncio.to_thread(self.store.cancel_pending, return_key)
+                return
             body = (
                 f"{phase} levert {_number(amps)} A terug. De meter heeft de achteruit gevonden."
                 if pieter_mode
-                else f"{phase} levert {_number(amps)} A terug; de grens is 10,0 A."
+                else f"{phase} levert {_number(amps)} A terug; de grens is 14 ampère."
             )
-            await self._trigger(return_key, f"10 A retour op {phase}", body, checked_at)
+            await self._trigger_after_hold(
+                return_key, f"14 ampère retour op {phase}", body, checked_at
+            )
         else:
             await asyncio.to_thread(self.store.clear_alert, return_key)
+            if amps < PHASE_LIMIT_AMPS:
+                await asyncio.to_thread(self.store.cancel_pending, import_key)
+                return
             body = (
                 f"{phase} trekt {_number(amps)} A. De elektronen hebben hun pauze overgeslagen."
                 if pieter_mode
-                else f"{phase} gebruikt {_number(amps)} A; de grens is 10,0 A."
+                else f"{phase} gebruikt {_number(amps)} A; de grens is 14 ampère."
             )
-            await self._trigger(import_key, f"10 A op {phase}", body, checked_at)
+            await self._trigger_after_hold(
+                import_key, f"14 ampère op {phase}", body, checked_at
+            )
+
+    async def _trigger_after_hold(
+        self,
+        key: str,
+        title: str,
+        body: str,
+        checked_at: datetime,
+    ) -> None:
+        state = await asyncio.to_thread(self.store.alert_state, key)
+        if state.active:
+            return
+        if state.condition_started_at is None:
+            await asyncio.to_thread(self.store.start_condition, key, checked_at)
+            return
+        if checked_at - state.condition_started_at < PHASE_HOLD_DURATION:
+            return
+        await self._trigger(key, title, body, checked_at)
 
     async def _trigger(self, key: str, title: str, body: str, checked_at: datetime) -> None:
         state = await asyncio.to_thread(self.store.alert_state, key)

@@ -1,5 +1,7 @@
+import sqlite3
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from telegram import (
@@ -74,13 +76,37 @@ class TelegramSenderTests(unittest.IsolatedAsyncioTestCase):
         client = CaptureClient()
         sender._client = client
 
-        result = await sender.send("10 A < L1", "Pieter & de meter")
+        result = await sender.send("14 ampère < L1", "Pieter & de meter")
 
         self.assertTrue(result.sent)
         self.assertTrue(client.url.endswith("/botsecret-token/sendMessage"))
         self.assertEqual(client.payload["chat_id"], "12345")
-        self.assertIn("10 A &lt; L1", client.payload["text"])
+        self.assertIn("14 ampère &lt; L1", client.payload["text"])
         self.assertIn("Pieter &amp; de meter", client.payload["text"])
+
+
+class NotificationStoreMigrationTests(unittest.TestCase):
+    def test_existing_alert_database_gets_hold_timer_column(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "notifications.sqlite3"
+            with sqlite3.connect(database) as connection:
+                connection.execute("""
+                    CREATE TABLE alert_state (
+                        alert_key TEXT PRIMARY KEY,
+                        active INTEGER NOT NULL DEFAULT 0,
+                        last_attempt_at TEXT,
+                        last_sent_at TEXT,
+                        updated_at TEXT NOT NULL
+                    )
+                """)
+
+            NotificationStore(str(database))
+
+            with sqlite3.connect(database) as connection:
+                columns = {
+                    row[1] for row in connection.execute("PRAGMA table_info(alert_state)")
+                }
+            self.assertIn("condition_started_at", columns)
 
 
 class TelegramRuleTests(unittest.IsolatedAsyncioTestCase):
@@ -93,7 +119,7 @@ class TelegramRuleTests(unittest.IsolatedAsyncioTestCase):
         self.snapshot = {
             "stale": False,
             "today_kwh": 4.0,
-            "current_l1": 10.2,
+            "current_l1": 14.2,
             "power_l1": 2300.0,
             "current_l2": 2.0,
             "power_l2": 400.0,
@@ -105,22 +131,63 @@ class TelegramRuleTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         self.temporary_directory.cleanup()
 
-    async def test_phase_only_notifies_once_until_below_nine_amps(self):
-        await self.service.check_once()
-        await self.service.check_once()
-        self.assertEqual(len(self.sender.notifications), 1)
-        self.assertEqual(self.sender.notifications[0][0], "10 A op L1")
+    async def test_phase_only_notifies_after_one_minute_until_below_thirteen_amps(self):
+        started = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        direction = ("import", 14.2)
 
-        self.snapshot["current_l1"] = 8.9
-        await self.service.check_once()
-        self.snapshot["current_l1"] = 10.1
-        await self.service.check_once()
+        await self.service._evaluate_phase("L1", direction, False, started)
+        await self.service._evaluate_phase(
+            "L1", direction, False, started + timedelta(seconds=59)
+        )
+        self.assertEqual(len(self.sender.notifications), 0)
+
+        await self.service._evaluate_phase(
+            "L1", direction, False, started + timedelta(seconds=60)
+        )
+        await self.service._evaluate_phase(
+            "L1", direction, False, started + timedelta(seconds=75)
+        )
+        self.assertEqual(len(self.sender.notifications), 1)
+        self.assertEqual(self.sender.notifications[0][0], "14 ampère op L1")
+
+        await self.service._evaluate_phase(
+            "L1", ("import", 12.9), False, started + timedelta(seconds=76)
+        )
+        await self.service._evaluate_phase(
+            "L1", direction, False, started + timedelta(seconds=77)
+        )
+        await self.service._evaluate_phase(
+            "L1", direction, False, started + timedelta(seconds=137)
+        )
         self.assertEqual(len(self.sender.notifications), 2)
 
+    async def test_short_phase_peak_restarts_the_minute(self):
+        started = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        await self.service._evaluate_phase("L1", ("import", 14.5), False, started)
+        await self.service._evaluate_phase(
+            "L1", ("import", 13.8), False, started + timedelta(seconds=45)
+        )
+        await self.service._evaluate_phase(
+            "L1", ("import", 14.5), False, started + timedelta(seconds=50)
+        )
+        await self.service._evaluate_phase(
+            "L1", ("import", 14.5), False, started + timedelta(seconds=109)
+        )
+        self.assertEqual(len(self.sender.notifications), 0)
+
+        await self.service._evaluate_phase(
+            "L1", ("import", 14.5), False, started + timedelta(seconds=110)
+        )
+        self.assertEqual(len(self.sender.notifications), 1)
+
     async def test_negative_phase_power_sends_return_notification(self):
-        self.snapshot["power_l1"] = -2300.0
-        await self.service.check_once()
-        self.assertEqual(self.sender.notifications[0][0], "10 A retour op L1")
+        started = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        direction = ("return", 14.2)
+        await self.service._evaluate_phase("L1", direction, False, started)
+        await self.service._evaluate_phase(
+            "L1", direction, False, started + timedelta(minutes=1)
+        )
+        self.assertEqual(self.sender.notifications[0][0], "14 ampère retour op L1")
 
     async def test_stale_notification_is_deduplicated(self):
         self.snapshot["stale"] = True

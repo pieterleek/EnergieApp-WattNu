@@ -27,6 +27,8 @@ struct RootView: View {
                     .tabItem { Label("Verloop", systemImage: "chart.xyaxis.line") }
                 UsageView()
                     .tabItem { Label("Gebruik", systemImage: "calendar") }
+                GridLoadView()
+                    .tabItem { Label("Net", systemImage: "point.3.connected.trianglepath.dotted") }
                 NavigationStack { SettingsView() }
                     .tabItem { Label("Instellingen", systemImage: "gearshape") }
             }

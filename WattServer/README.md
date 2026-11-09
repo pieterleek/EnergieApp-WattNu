@@ -41,15 +41,15 @@ docker compose exec timescaledb psql -U energy -c "select * from sdm630 order by
 
 De API kan via een Telegram-bot meldingen versturen voor:
 
-- 10 A of meer afname op L1, L2 of L3;
-- 10 A of meer teruglevering op L1, L2 of L3;
+- langer dan één minuut 14 A of meer afname op L1, L2 of L3;
+- langer dan één minuut 14 A of meer teruglevering op L1, L2 of L3;
 - langer dan één minuut ontbrekende meterdata;
 - een per apparaat instelbare dagelijkse kWh-limiet.
 
 De stroomregisters van de SDM630 zijn absolute waarden. De API gebruikt daarom
 het teken van `power_l1`, `power_l2` en `power_l3` om afname van teruglevering te
 onderscheiden. Een fase-alarm wordt pas opnieuw actief nadat de stroom onder
-9 A is geweest.
+13 A is geweest.
 
 1. Open [@BotFather](https://t.me/BotFather) in Telegram, stuur `/newbot` en volg
    de stappen. Bewaar het bottoken dat BotFather terugstuurt.
@@ -81,6 +81,14 @@ Telegrammeldingen uitstaan. De Pi maakt alleen een uitgaande HTTPS-verbinding me
 Telegram; er hoeft geen extra poort open.
 
 De WattNu-app voor iPhone, iPad en Mac staat in `WattApp/`.
+
+## Nederlandse netbelasting
+
+De tab **Net** toont de totale Nederlandse elektriciteitsvraag per kwartier voor
+de laatste 24 uur, 7 dagen of 30 dagen. De API haalt dit zonder abonnement of
+persoonlijk token op bij Energy-Charts en bewaart elk antwoord 15 minuten in het
+geheugen. De onderliggende gegevens komen van ENTSO-E/TenneT en vallen onder
+CC BY 4.0. Dit staat los van een dynamisch energiecontract en van de eigen meter.
 
 ## Instellingen op de meter
 

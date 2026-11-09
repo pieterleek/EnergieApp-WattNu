@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
+from grid_load import GridLoadClient, GridLoadError
 from telegram import NotificationService, NotificationStore, TelegramSender
 
 API_TOKEN = os.environ["API_TOKEN"]
@@ -17,6 +18,7 @@ LOCAL_TZ = "Europe/Amsterdam"
 
 pool = ConnectionPool(os.environ["DATABASE_DSN"], min_size=1, max_size=4, open=False,
                       kwargs={"row_factory": dict_row, "autocommit": True})
+grid_load_client = GridLoadClient()
 
 
 @asynccontextmanager
@@ -125,12 +127,20 @@ def heatmap(days: int = Query(90, ge=7, le=3660)) -> list[dict]:
 @app.get("/api/peaks")
 def peaks(days: int = Query(30, ge=1, le=3660), limit: int = Query(10, ge=1, le=50)) -> list[dict]:
     return query("""
-        SELECT bucket AS time, power_total_avg AS power_total,
+        SELECT bucket AS time, power_total_max AS power_total,
                current_l1_max AS current_l1, current_l2_max AS current_l2,
                current_l3_max AS current_l3, current_n_max AS current_n
         FROM sdm630_1m
         WHERE bucket >= now() - make_interval(days => %s)
-        ORDER BY power_total_avg DESC NULLS LAST LIMIT %s""", (days, limit))
+        ORDER BY power_total_max DESC NULLS LAST LIMIT %s""", (days, limit))
+
+
+@app.get("/api/grid-load")
+def grid_load(days: int = Query(7, ge=1, le=30)) -> dict:
+    try:
+        return grid_load_client.get(days)
+    except GridLoadError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
 
 
 @app.put("/api/telegram/settings")

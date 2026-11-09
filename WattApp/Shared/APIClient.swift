@@ -45,6 +45,10 @@ struct APIClient: Sendable {
         try await get("peaks", ["days": days, "limit": limit])
     }
 
+    func gridLoad(days: Int = 7) async throws -> GridLoadResponse {
+        try await get("grid-load", ["days": days])
+    }
+
     func updateTelegramSettings(_ settings: TelegramSettings) async throws -> Bool {
         let response: TelegramSettingsResponse = try await send(
             "telegram/settings", method: "PUT", body: settings
