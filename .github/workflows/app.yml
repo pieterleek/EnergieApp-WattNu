@@ -1,0 +1,32 @@
+name: App
+
+# macOS-runners tellen in een privérepository tien keer zo zwaar als Linux;
+# daarom draait dit alleen als de app zelf verandert.
+on:
+  push:
+    branches: [main]
+    paths: ["WattApp/**", ".github/workflows/app.yml"]
+  pull_request:
+    paths: ["WattApp/**", ".github/workflows/app.yml"]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: iOS
+            destination: generic/platform=iOS Simulator
+          - name: macOS
+            destination: generic/platform=macOS
+    name: Build ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          xcodebuild \
+            -project WattApp/WattNu.xcodeproj \
+            -scheme WattNu \
+            -destination '${{ matrix.destination }}' \
+            CODE_SIGNING_ALLOWED=NO build
