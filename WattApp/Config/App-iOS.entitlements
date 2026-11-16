@@ -6,5 +6,11 @@
 	<array>
 		<string>group.io.qman.wattnu</string>
 	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)io.qman.wattnu</string>
+	</array>
+	<key>aps-environment</key>
+	<string>development</string>
 </dict>
 </plist>

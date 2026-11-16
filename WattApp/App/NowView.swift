@@ -20,6 +20,7 @@ final class NowModel {
             let next = try await client.now()
             withAnimation(.easeInOut(duration: 0.6)) { reading = next }
             errorText = nil
+            AppSettings.cacheReading(next)
         } catch is CancellationError {
             return
         } catch let error as URLError where error.code == .cancelled {
@@ -34,6 +35,8 @@ struct NowView: View {
     @State private var model = NowModel()
     @AppStorage(AppSettings.Key.fuse, store: AppSettings.store) private var fuse = 25.0
     @AppStorage(AppSettings.Key.pieterMode, store: AppSettings.store) private var pieterMode = true
+    @AppStorage(AppSettings.Key.priceImport, store: AppSettings.store) private var priceImport = 0.0
+    @AppStorage(AppSettings.Key.priceExport, store: AppSettings.store) private var priceExport = 0.0
 
     var body: some View {
         ScrollView {
@@ -81,6 +84,7 @@ struct NowView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
+        .accessibilityElement(children: .combine)
     }
 
     private func phaseCard(_ reading: NowReading) -> some View {
@@ -98,9 +102,25 @@ struct NowView: View {
             VStack(spacing: 10) {
                 StatRow(label: "Vandaag", value: Format.number(reading.todayKwh) + " kWh")
                 StatRow(label: "Deze maand", value: Format.number(reading.monthKwh, decimals: 0) + " kWh")
+                if (reading.monthExportKwh ?? 0) > 0 {
+                    StatRow(label: "Teruggeleverd vandaag", value: Format.number(reading.todayExportKwh) + " kWh")
+                    StatRow(label: "Teruggeleverd deze maand", value: Format.number(reading.monthExportKwh, decimals: 0) + " kWh")
+                }
+                if let today = Format.cost(importKwh: reading.todayKwh, exportKwh: reading.todayExportKwh,
+                                           priceImport: priceImport, priceExport: priceExport),
+                   let month = Format.cost(importKwh: reading.monthKwh, exportKwh: reading.monthExportKwh,
+                                           priceImport: priceImport, priceExport: priceExport) {
+                    StatRow(label: "Kosten vandaag", value: Format.euro(today))
+                    StatRow(label: "Kosten deze maand", value: Format.euro(month))
+                }
                 StatRow(label: "Spanning", value: [reading.voltageL1, reading.voltageL2, reading.voltageL3]
                     .map { Format.number($0, decimals: 0) }.joined(separator: " / ") + " V")
                 StatRow(label: "Frequentie", value: Format.number(reading.frequency, decimals: 2) + " Hz")
+                if reading.currentThdL1 != nil || reading.currentThdL2 != nil || reading.currentThdL3 != nil {
+                    StatRow(label: "Stroomvervorming (THD)",
+                            value: [reading.currentThdL1, reading.currentThdL2, reading.currentThdL3]
+                                .map { Format.number($0, decimals: 0) }.joined(separator: " / ") + " %")
+                }
             }
         }
     }
@@ -144,6 +164,7 @@ struct StatRow: View {
             Spacer()
             Text(value).monospacedDigit()
         }
+        .accessibilityElement(children: .combine)
     }
 }
 

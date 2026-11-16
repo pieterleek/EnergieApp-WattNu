@@ -14,8 +14,13 @@ struct NowReading: Codable, Sendable {
     var powerL3: Double?
     var powerTotal: Double?
     var frequency: Double?
+    var currentThdL1: Double?
+    var currentThdL2: Double?
+    var currentThdL3: Double?
     var todayKwh: Double
     var monthKwh: Double
+    var todayExportKwh: Double?
+    var monthExportKwh: Double?
     var stale: Bool
 
     var currents: [(name: String, amps: Double)] {
@@ -41,6 +46,7 @@ struct SeriesPoint: Codable, Sendable {
 struct DayUsage: Codable, Sendable, Identifiable {
     var day: Date
     var kwhTotal: Double?
+    var kwhExport: Double?
     var kwhL1: Double?
     var kwhL2: Double?
     var kwhL3: Double?
@@ -83,14 +89,65 @@ struct GridLoadResponse: Codable, Sendable {
     var points: [GridLoadPoint]
 }
 
-struct TelegramSettings: Encodable, Sendable {
-    let enabled: Bool
-    let phaseAlerts: Bool
-    let staleAlerts: Bool
-    let dailyLimitKwh: Double?
-    let pieterMode: Bool
+/// Sluipverbruik van één nacht.
+struct BaseloadDay: Codable, Sendable, Identifiable {
+    var day: Date
+    var watts: Double
+
+    var id: Date { day }
 }
 
-struct TelegramSettingsResponse: Decodable, Sendable {
+/// Deze week en maand tot nu toe, naast hetzelfde stuk van de vorige periode.
+struct Comparison: Codable, Sendable {
+    var weekKwh: Double?
+    var weekExportKwh: Double?
+    var previousWeekKwh: Double?
+    var previousWeekExportKwh: Double?
+    var monthKwh: Double?
+    var monthExportKwh: Double?
+    var previousMonthKwh: Double?
+    var previousMonthExportKwh: Double?
+    var lastYearMonthKwh: Double?
+    var lastYearMonthExportKwh: Double?
+}
+
+/// Voorkeuren die op de server staan en dus op elk apparaat gelijk zijn.
+struct ServerSettings: Codable, Sendable, Equatable {
+    var enabled = false
+    var telegramEnabled = true
+    var pushEnabled = true
+    var phaseAlerts = true
+    var phaseLimitAmps = 14.0
+    var phaseHoldSeconds = 60
+    var staleAlerts = true
+    var dailyLimitKwh: Double?
+    var voltageAlerts = false
+    var voltageMin = 207.0
+    var voltageMax = 253.0
+    var frequencyAlerts = false
+    var pieterMode = true
+    var priceImport: Double?
+    var priceExport: Double?
+}
+
+struct NotificationChannels: Codable, Sendable, Equatable {
+    var telegram = false
+    var push = false
+    var pushDevices = 0
+}
+
+struct SettingsEnvelope: Codable, Sendable {
+    var settings: ServerSettings
+    var channels: NotificationChannels
+}
+
+struct DeviceRegistration: Encodable, Sendable {
+    let token: String
+    let platform: String
+    let environment: String
+}
+
+struct DeviceRegistrationResponse: Decodable, Sendable {
+    let registered: Bool
     let configured: Bool
 }

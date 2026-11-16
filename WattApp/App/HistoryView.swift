@@ -105,6 +105,7 @@ struct HistoryView: View {
                 .chartYAxisLabel { Text(metric.unit) }
                 .chartLegend(position: .bottom, spacing: 12)
                 .frame(maxHeight: .infinity)
+                .accessibilityLabel("\(metric.rawValue) per fase, \(span.label)")
             }
         }
         .padding()
