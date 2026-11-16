@@ -28,7 +28,9 @@ Nodig: een machine met Docker die de DR302 kan bereiken, altijd aan.
    docker compose up -d
    ```
 
-4. Open `http://<machine>:3000` en log in als `admin` met `GRAFANA_ADMIN_PASSWORD`.
+4. Grafana luistert standaard alleen lokaal op poort 3000. Zet `GRAFANA_BIND=0.0.0.0`
+   in `.env` om het op het netwerk te openen, en log in als `admin` met
+   `GRAFANA_ADMIN_PASSWORD`.
 
 Controleer of er metingen binnenkomen:
 
@@ -37,19 +39,46 @@ docker compose logs telegraf
 docker compose exec timescaledb psql -U energy -c "select * from sdm630 order by time desc limit 1"
 ```
 
-## Telegrammeldingen instellen
+## Bijwerken, back-ups en gezondheid
 
-De API kan via een Telegram-bot meldingen versturen voor:
+- `docker compose up -d --build` draait eerst de service `migrate`. Die voert
+  nieuwe bestanden uit `db/migrations/` uit en maakt de leesrol `wattnu_api`
+  aan. Zet `API_DB_PASSWORD` in `.env` voor een eigen wachtwoord; zonder die
+  regel gebruikt de rol `GRAFANA_DB_PASSWORD`.
+- De service `backup` schrijft elke dag een dump naar `backups/` en bewaart
+  `BACKUP_KEEP_DAYS` dagen (standaard 7). Test het terugzetten met
+  `./tools/restore-test.sh`. Kopieer de dumps ook naar een andere machine.
+- `docker compose ps api` toont `healthy` zolang de API de database bereikt.
 
-- langer dan één minuut 14 A of meer afname op L1, L2 of L3;
-- langer dan één minuut 14 A of meer teruglevering op L1, L2 of L3;
+## Meldingen
+
+De API verstuurt meldingen via Telegram, via Apple-push, of allebei, voor:
+
+- een instelbare stroomgrens (standaard 14 A) op L1, L2 of L3, na een
+  instelbare wachttijd (standaard één minuut), apart voor afname en teruglevering;
 - langer dan één minuut ontbrekende meterdata;
-- een per apparaat instelbare dagelijkse kWh-limiet.
+- spanning buiten een instelbaar bereik (standaard 207–253 V);
+- netfrequentie buiten 49,8–50,2 Hz;
+- een dagelijkse kWh-limiet.
+
+De instellingen staan op de server en gelden voor alle apparaten.
+
+### Apple-push
+
+1. Maak in het Apple Developer-account een sleutel met "Apple Push
+   Notifications service (APNs)" en download het `.p8`-bestand.
+2. Leg het in `secrets/` en maak het leesbaar voor de container:
+   `chmod 644 secrets/AuthKey_<KEY_ID>.p8`.
+3. Vul `APNS_KEY_FILE`, `APNS_KEY_ID` en `APNS_TEAM_ID` in `.env` in.
+4. `docker compose up -d --build api`, zet daarna in de app
+   "Pushmeldingen op dit apparaat" aan en stuur een pushtest.
+
+### Telegram
 
 De stroomregisters van de SDM630 zijn absolute waarden. De API gebruikt daarom
 het teken van `power_l1`, `power_l2` en `power_l3` om afname van teruglevering te
-onderscheiden. Een fase-alarm wordt pas opnieuw actief nadat de stroom onder
-13 A is geweest.
+onderscheiden. Een fase-alarm wordt pas opnieuw actief nadat de stroom 1 A
+onder de grens is geweest.
 
 1. Open [@BotFather](https://t.me/BotFather) in Telegram, stuur `/newbot` en volg
    de stappen. Bewaar het bottoken dat BotFather terugstuurt.

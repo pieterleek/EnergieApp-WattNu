@@ -30,6 +30,17 @@ enum Format {
         guard let value else { return "–" }
         return value.formatted(.number.precision(.fractionLength(decimals)))
     }
+
+    static func euro(_ value: Double) -> String {
+        value.formatted(.currency(code: "EUR").precision(.fractionLength(2)))
+    }
+
+    /// Geschatte kosten bij één vast tarief; nil als er geen afnametarief is.
+    /// Een tarief van 0 betekent: niet ingesteld.
+    static func cost(importKwh: Double?, exportKwh: Double?, priceImport: Double, priceExport: Double) -> Double? {
+        guard priceImport > 0, let importKwh else { return nil }
+        return importKwh * priceImport - (exportKwh ?? 0) * priceExport
+    }
 }
 
 /// Droge, contextgevoelige teksten. Bewust gecentraliseerd zodat de app niet
@@ -113,6 +124,7 @@ struct PhaseBar: View {
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(name): \(Format.number(amps)) ampère")
+        .accessibilityLabel(name == "N" ? "Nulleider" : "Fase \(name)")
+        .accessibilityValue("\(Format.number(amps)) ampère, \(Int((fraction * 100).rounded())) procent van de hoofdzekering")
     }
 }

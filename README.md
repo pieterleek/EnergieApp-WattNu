@@ -1,7 +1,8 @@
 # WattNu
 
 > Self-hosted three-phase energy monitoring — from DIN rail to SwiftUI, with
-> historical data, Telegram alerts, Grafana, and just enough Pieter humour.
+> historical data, Telegram and Apple push alerts, Grafana, and just enough
+> Pieter humour.
 
 ![Platform](https://img.shields.io/badge/platform-iOS%2017%2B%20%7C%20macOS%2014%2B-111111)
 ![Swift](https://img.shields.io/badge/Swift-SwiftUI-F05138?logo=swift&logoColor=white)
@@ -12,12 +13,13 @@
 WattNu reads an Eastron SDM630 energy meter every five seconds, stores the
 measurements locally on a Raspberry Pi, and presents them in a native app for
 iPhone, iPad, and Mac. A Grafana dashboard provides deeper analysis, while a
-Telegram bot sends alerts for sustained phase loads, missing meter data, and a
-configurable daily energy limit.
+Telegram bot and Apple push notifications send alerts for sustained phase loads,
+missing meter data, voltage or frequency excursions, and a configurable daily
+energy limit.
 
 The system is designed around local ownership of data: measurement history
-stays on the Raspberry Pi. Only Telegram notifications and the optional Dutch
-national grid-load feature use external internet services.
+stays on the Raspberry Pi. Only Telegram and Apple push notifications and the
+optional Dutch national grid-load feature use external internet services.
 
 > [!WARNING]
 > Work inside a distribution board must be performed by a qualified electrician.
@@ -34,6 +36,7 @@ national grid-load feature use external internet services.
 - [Installing WattServer](#installing-wattserver)
 - [Installing WattApp](#installing-wattapp)
 - [Telegram notifications](#telegram-notifications)
+- [Apple push notifications](#apple-push-notifications)
 - [API](#api)
 - [Data model and retention](#data-model-and-retention)
 - [Security](#security)
@@ -54,10 +57,18 @@ national grid-load feature use external internet services.
 - Switches between current, power, and voltage charts.
 - Visualises daily consumption per phase and an hour/weekday heatmap.
 - Shows the highest one-minute peaks of the local electrical connection.
+- Compares this week and month to date with the same stretch of the previous
+  period and of last year.
+- Shows feed-in per day, night-time standby load, and current THD.
+- Converts energy to euros with a fixed import and feed-in tariff.
 - Shows total Dutch national grid load for 24 hours, 7 days, or 30 days.
-- Includes small and medium WidgetKit widgets.
-- Shares settings between the app and widget through App Group
-  `group.io.qman.wattnu`.
+- Includes small and medium WidgetKit widgets, plus lock-screen widgets on iOS.
+  A widget without a connection shows the last known reading and its time.
+- Receives Apple push notifications on iPhone, iPad, and Mac.
+- Shares local settings between the app and widget through App Group
+  `group.io.qman.wattnu`; the API token lives in the Keychain.
+- Keeps alert preferences and tariffs on the server, so every device shows the
+  same settings.
 - Includes an optional **Pieter mode** with dry, context-aware comments.
 
 ### Self-hosted server
@@ -67,24 +78,31 @@ national grid-load feature use external internet services.
 - Buffers measurements while PostgreSQL is temporarily unavailable.
 - Stores raw data and minute/hour aggregates in TimescaleDB.
 - Automatically selects a suitable resolution for historical charts.
-- Exposes a small read-only FastAPI interface to the app.
+- Exposes a small FastAPI interface to the app, reading measurements through
+  its own read-only database role.
 - Ships with a provisioned Grafana dashboard.
-- Evaluates Telegram rules every fifteen seconds.
+- Evaluates alert rules every fifteen seconds.
+- Applies versioned database migrations on every start.
+- Writes a daily database backup and ships a restore test.
 - Retrieves Dutch grid load from Energy-Charts and caches it for fifteen
   minutes.
 
 ### Notifications
 
-- 14 amperes or more on L1, L2, or L3, only after one continuous minute.
+- A configurable current limit on L1, L2, or L3 (default 14 A), only after a
+  configurable hold time (default one continuous minute).
 - Separate detection for consumption and feed-in.
 - Missing meter data.
+- Voltage outside a configurable band (default 207–253 V) for one minute.
+- Grid frequency outside 49.8–50.2 Hz for one minute.
 - A daily kWh limit configured from WattApp.
 - Deduplication and persistent notification state in SQLite.
-- A test notification triggered from WattApp.
+- A test notification per channel, triggered from WattApp.
 
-WattNu uses the Telegram Bot API for these notifications. It therefore does not
-need a paid Apple Developer Program membership or an APNs server to deliver
-alerts.
+Alerts go to two independent channels: the Telegram Bot API and Apple Push
+Notification service. Telegram needs no Apple account at all. Apple push needs
+a paid Apple Developer Program membership and an APNs key on the Pi; the Pi
+talks to Apple directly, so no extra server is involved.
 
 ## Screenshots
 
@@ -156,9 +174,9 @@ flowchart LR
         DB[(TimescaleDB<br/>PostgreSQL 16)]
         API[FastAPI<br/>WattNu API]
         Grafana[Grafana]
-        SQLite[(SQLite<br/>notification state)]
+        SQLite[(SQLite<br/>preferences, devices,<br/>notification state)]
         Telegraf -->|measurements| DB
-        API -->|grafana_ro · SELECT| DB
+        API -->|wattnu_api · SELECT| DB
         Grafana -->|grafana_ro · SELECT| DB
         API --> SQLite
     end
@@ -207,7 +225,8 @@ flowchart TB
 
 The database does not publish a host port. The API listens only on
 `127.0.0.1:8000`; Tailscale Serve is the intended entry point for the app and
-widget. Grafana publishes port 3000 on the host by default.
+widget. Grafana also listens on loopback only, on port 3000, unless
+`GRAFANA_BIND` says otherwise.
 
 ### Measurement data flow
 
@@ -266,10 +285,13 @@ sequenceDiagram
    are retained.
 4. **The API is deliberately small.** It contains only the endpoints needed by
    the app. Swagger, ReDoc, and the OpenAPI endpoint are disabled in production.
-5. **Database roles are separated.** Telegraf writes as `energy`; Grafana and
-   the API read as `grafana_ro`.
+5. **Database roles are separated.** Telegraf writes as `energy`; Grafana reads
+   as `grafana_ro` and the API as `wattnu_api`, each with its own password.
 6. **Notifications are server-side.** The Pi continues monitoring while WattApp
-   is closed. Telegram replaces Apple Push Notifications for this project.
+   is closed, and delivers alerts through Telegram, Apple push, or both.
+7. **Shared preferences live on the server.** Alert settings and tariffs are
+   read from and written to the Pi, so two devices cannot overwrite each other
+   with stale local copies.
 7. **External grid data is proxied through the Pi.** WattApp does not need to
    know another external API. Responses are cached, with stale fallback data.
 8. **Timestamps are exchanged in UTC.** Day and month boundaries are calculated
@@ -298,7 +320,7 @@ direction of each phase from the sign of `power_l1`, `power_l2`, and `power_l3`:
 - positive phase power: consumption/import;
 - negative phase power: feed-in/export.
 
-This is also the basis for separate Telegram alerts for consumption and feed-in.
+This is also the basis for separate alerts for consumption and feed-in.
 
 ### Repository structure
 
@@ -315,13 +337,21 @@ This is also the basis for separate Telegram alerts for consumption and feed-in.
 └── WattServer/
     ├── api/
     │   ├── main.py                 # FastAPI routes
-    │   ├── telegram.py             # notification rules and Telegram client
+    │   ├── notifications.py        # alert rules, preferences, deduplication
+    │   ├── telegram.py             # Telegram channel
+    │   ├── apns.py                 # Apple push channel
+    │   ├── migrate.py              # migration runner and API database role
     │   ├── grid_load.py            # national grid load and cache
     │   └── tests/                  # unit tests
-    ├── db/init/                    # schema and read-only role
+    ├── db/init/                    # base schema, first start only
+    ├── db/migrations/              # numbered schema changes after that
     ├── grafana/                    # provisioning and dashboard as code
     ├── telegraf/telegraf.conf      # Modbus registers and PostgreSQL output
     ├── tools/check_meter.py        # read-only connection test
+    ├── tools/backup.sh             # daily pg_dump, run by the backup service
+    ├── tools/restore-test.sh       # restores the latest dump into a scratch database
+    ├── secrets/                    # APNs key (.p8), not committed
+    ├── backups/                    # database dumps, not committed
     ├── .env.example
     └── docker-compose.yml
 ```
@@ -372,6 +402,8 @@ Configure at least:
 POSTGRES_PASSWORD='a-long-unique-password'
 GRAFANA_DB_PASSWORD='another-long-unique-password'
 GRAFANA_ADMIN_PASSWORD='yet-another-long-unique-password'
+API_DB_PASSWORD='a-fourth-long-unique-password'
+GRAFANA_BIND=127.0.0.1
 
 MODBUS_HOST=192.168.1.100
 MODBUS_PORT=502
@@ -383,7 +415,18 @@ API_PORT=8000
 
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
+
+APNS_KEY_FILE=/secrets/AuthKey_XXXXXXXXXX.p8
+APNS_KEY_ID=
+APNS_TEAM_ID=
+APNS_BUNDLE_ID=io.qman.wattnu
+
+BACKUP_KEEP_DAYS=7
 ```
+
+`API_DB_PASSWORD` is the password of the API's own read-only role. Leaving it
+unset falls back to `GRAFANA_DB_PASSWORD`, so an existing installation keeps
+working after an update.
 
 Generate safe hexadecimal secrets with:
 
@@ -434,10 +477,14 @@ On first start:
 2. TimescaleDB is enabled;
 3. the hypertable, aggregates, view, and SQL function are created;
 4. `grafana_ro` is created with read-only permissions;
-5. Telegraf, Grafana, and the API start after the health check passes.
+5. the `migrate` service applies pending migrations and creates the read-only
+   `wattnu_api` role;
+6. Telegraf, Grafana, and the API start after the health check passes.
 
-Initialisation scripts run only when `timescale-data` is empty. Editing SQL does
-not automatically migrate an existing database.
+Initialisation scripts in `db/init/` run only when `timescale-data` is empty.
+Later schema changes go into `db/migrations/` as numbered SQL files; `migrate`
+runs on every start and applies the ones not yet recorded in
+`schema_migrations`. See `WattServer/db/migrations/README.md`.
 
 ### 5. Verify the installation
 
@@ -455,8 +502,10 @@ docker compose exec timescaledb \
   -c "SELECT time, power_total, current_l1, current_l2, current_l3, current_n FROM sdm630 ORDER BY time DESC LIMIT 1;"
 ```
 
-Grafana is available at `http://<raspberry-pi-address>:3000`. Log in as `admin`
-with `GRAFANA_ADMIN_PASSWORD`.
+Grafana listens on loopback only by default. Reach it with
+`sudo tailscale serve --bg --https 8443 3000`, or set `GRAFANA_BIND=0.0.0.0` in
+`.env` to make it available at `http://<raspberry-pi-address>:3000` on the
+whole network. Log in as `admin` with `GRAFANA_ADMIN_PASSWORD`.
 
 ### 6. Private HTTPS access
 
@@ -492,9 +541,16 @@ Serve**, not Funnel: this API is not intended for the public internet.
 | Widget | `io.qman.wattnu.widget` |
 | App Group | `group.io.qman.wattnu` |
 
-Valid Xcode signing is required for a physical Apple device. Available
-capabilities depend on the Apple account and provisioning profile. Telegram
-notifications themselves do not depend on Apple provisioning.
+Valid Xcode signing is required for a physical Apple device. The app target
+declares the Push Notifications capability, which is only available with a paid
+Apple Developer Program membership. With a free personal team, remove
+`aps-environment` from `Config/App-iOS.entitlements` and
+`com.apple.developer.aps-environment` from `Config/App-macOS.entitlements`;
+everything except Apple push keeps working, including Telegram.
+
+The API token is stored in the Keychain and shared with the widget through the
+`keychain-access-groups` entitlement. A token saved by an older version in the
+App Group preferences is moved to the Keychain on first launch.
 
 ## Telegram notifications
 
@@ -529,6 +585,10 @@ Enable the desired alerts under **Instellingen** in WattApp and send a test.
 
 ### Phase-alert state machine
 
+The diagram shows the defaults: a 14 A limit and a 60 s hold time. Both are
+configurable under **Instellingen**; the reset threshold is always 1 A below the
+limit.
+
 ```mermaid
 stateDiagram-v2
     [*] --> Normal
@@ -539,23 +599,80 @@ stateDiagram-v2
     Alert --> Normal: current < 13 A
 ```
 
-The 14 A/13 A hysteresis prevents repeated alerts around the threshold. A
-successful alert is not repeated while its state is active. A failed Telegram
-attempt is retried no earlier than five minutes later.
+The hysteresis prevents repeated alerts around the threshold. A successful alert
+is not repeated while its state is active. An alert counts as delivered when at
+least one channel accepted it; if every channel fails, it is retried no earlier
+than five minutes later.
 
 | Alert | Condition | Reset / deduplication |
 |---|---|---|
-| Phase consumption | phase ≥ 14 A for 60 s and positive phase power | rearmed below 13 A |
-| Phase feed-in | phase ≥ 14 A for 60 s and negative phase power | rearmed below 13 A |
+| Phase consumption | phase ≥ limit for the hold time and positive phase power | rearmed 1 A below the limit |
+| Phase feed-in | phase ≥ limit for the hold time and negative phase power | rearmed 1 A below the limit |
 | Missing data | latest reading older than 60 s | reset when data is fresh |
+| Voltage | a phase outside the configured band for 60 s | rearmed 2 V inside the band |
+| Frequency | outside 49.8–50.2 Hz for 60 s | rearmed 0.05 Hz inside the band |
 | Daily limit | today's consumption ≥ configured kWh | at most once per local day |
 
-Preferences and alert state are stored in `notifications.sqlite3` in the
-`api-data` volume, so an API restart does not clear them.
+Voltage and frequency alerts are off by default. Current THD is shown in the app
+but has no alert: at low load it is routinely above 100 % and says little.
+
+Preferences, registered devices, and alert state are stored in
+`notifications.sqlite3` in the `api-data` volume, so an API restart does not
+clear them.
+
+## Apple push notifications
+
+The Pi sends alerts straight to Apple Push Notification service (APNs) with
+token authentication. This needs a paid Apple Developer Program membership.
+
+### Create an APNs key
+
+1. In the [Apple Developer portal](https://developer.apple.com/account/resources/authkeys/list),
+   create a key with **Apple Push Notifications service (APNs)** enabled.
+2. Download the `AuthKey_<KEY_ID>.p8` file. Apple offers it only once.
+3. Copy it to `WattServer/secrets/` on the Pi and make it readable for the API
+   container, which runs as an unprivileged user:
+
+   ```bash
+   chmod 644 secrets/AuthKey_<KEY_ID>.p8
+   ```
+
+4. Add the values to `.env`. The Team ID is on the Membership page of the
+   developer portal:
+
+   ```dotenv
+   APNS_KEY_FILE=/secrets/AuthKey_<KEY_ID>.p8
+   APNS_KEY_ID=<KEY_ID>
+   APNS_TEAM_ID=<TEAM_ID>
+   APNS_BUNDLE_ID=io.qman.wattnu
+   ```
+
+5. Restart the API and check the log for an APNs warning:
+
+   ```bash
+   docker compose up -d --build api
+   docker compose logs --tail 50 api
+   ```
+
+The `secrets/` directory is ignored by Git. One key works for iOS and macOS and
+for both the sandbox and production APNs environments.
+
+### Register a device
+
+In WattApp, open **Instellingen**, switch on **Pushmeldingen op dit apparaat**,
+allow notifications, and choose **Stuur pushtest**. Repeat on every device.
+
+A build started from Xcode registers with the APNs sandbox; TestFlight and App
+Store builds use production. The app reports its environment and the server
+routes each device accordingly. Tokens that Apple reports as expired are
+removed automatically.
+
+The Pi needs outbound HTTPS (HTTP/2) to `api.push.apple.com` and
+`api.sandbox.push.apple.com`.
 
 ## API
 
-Every route requires:
+Every route except `/api/health` requires:
 
 ```http
 Authorization: Bearer <API_TOKEN>
@@ -568,12 +685,25 @@ for JSON responses.
 |---|---|---|---|
 | `GET` | `/api/now` | – | latest reading, today, month, stale state |
 | `GET` | `/api/series` | `hours=1..8784`, `points=10..1000` | downsampled history |
-| `GET` | `/api/daily` | `days=1..3660` | daily total and per-phase use |
+| `GET` | `/api/daily` | `days=1..3660` | daily total, feed-in, and per-phase use |
 | `GET` | `/api/heatmap` | `days=7..3660` | average kWh by weekday/hour |
 | `GET` | `/api/peaks` | `days=1..3660`, `limit=1..50` | one-minute peaks |
+| `GET` | `/api/baseload` | `days=1..366` | night-time standby load per day |
+| `GET` | `/api/compare` | – | week and month to date against the previous period |
 | `GET` | `/api/grid-load` | `days=1..30` | national load per 15 min |
-| `PUT` | `/api/telegram/settings` | JSON body | notification preferences |
-| `POST` | `/api/telegram/test` | – | send a test notification |
+| `GET` | `/api/settings` | – | shared preferences and configured channels |
+| `PUT` | `/api/settings` | JSON body | replace the shared preferences |
+| `POST` | `/api/devices` | JSON body | register a device for Apple push |
+| `DELETE` | `/api/devices/{token}` | – | unregister a device |
+| `POST` | `/api/notifications/test` | `channel=telegram\|push` (optional) | send a test notification |
+| `GET` | `/api/health` | – | database reachable; no token, no data |
+
+`PUT /api/telegram/settings` and `POST /api/telegram/test` remain for app
+versions from before the shared settings.
+
+`/api/baseload` takes the 10th percentile of the one-minute average power
+between 00:00 and 05:00 local time; nights with less than an hour of data are
+left out.
 
 Example:
 
@@ -583,7 +713,8 @@ curl -s \
   "http://127.0.0.1:8000/api/now"
 ```
 
-Telegram settings example:
+Settings example. The body replaces all preferences; omitted fields return to
+their defaults, and an omitted `daily_limit_kwh` or tariff is cleared:
 
 ```bash
 curl -s -X PUT \
@@ -591,12 +722,22 @@ curl -s -X PUT \
   -H "Content-Type: application/json" \
   -d '{
     "enabled": true,
+    "telegram_enabled": true,
+    "push_enabled": true,
     "phase_alerts": true,
+    "phase_limit_amps": 14,
+    "phase_hold_seconds": 60,
     "stale_alerts": true,
     "daily_limit_kwh": 20,
-    "pieter_mode": true
+    "voltage_alerts": false,
+    "voltage_min": 207,
+    "voltage_max": 253,
+    "frequency_alerts": false,
+    "pieter_mode": true,
+    "price_import": 0.28,
+    "price_export": 0.07
   }' \
-  "http://127.0.0.1:8000/api/telegram/settings"
+  "http://127.0.0.1:8000/api/settings"
 ```
 
 ### Dutch national grid load
@@ -686,26 +827,29 @@ non-linear loads.
 | Boundary | Control | Remaining risk |
 |---|---|---|
 | App → API | Tailscale HTTPS + Bearer token | one token, no user roles |
-| API → database | read-only `grafana_ro` | password shared with Grafana |
+| API → database | read-only `wattnu_api`, own password | can read all measurements |
 | Grafana → database | read-only role | admin can read all data |
 | Telegraf → meter | function code 04 only | Modbus has no authentication |
 | API → Telegram | outbound HTTPS | bot token controls the bot |
+| API → APNs | outbound HTTPS, short-lived signed token | `.p8` key can push to the app |
+| Docker → API | `/api/health` without token | reveals only that the database answers |
 | API → Energy-Charts | outbound HTTPS | external availability/quality |
 
 Current controls include an unpublished database port, loopback-only API port,
-constant-time token comparison, disabled OpenAPI documentation, disabled
-Grafana signup, read-only query roles, secret-safe Telegram logging, ignored
-`.env` files, and App Sandbox on macOS.
+loopback-only Grafana port, constant-time token comparison, disabled OpenAPI
+documentation, disabled Grafana signup, separate read-only query roles,
+secret-safe Telegram and APNs logging, ignored `.env`, `secrets/`, and
+`backups/`, the API token in the Keychain, and App Sandbox on macOS.
 
 Recommended hardening:
 
 - place the meter, gateway, and Pi on a trusted LAN or VLAN;
-- expose Grafana only over the LAN or Tailscale;
-- bind Grafana to loopback when direct LAN access is unnecessary;
+- expose Grafana only over Tailscale, or over the LAN if you must;
+- give `API_DB_PASSWORD` its own value instead of the Grafana fallback;
 - use unique long secrets and never share resolved Compose output;
-- revoke leaked Telegram tokens immediately;
-- keep encrypted, tested backups;
-- consider Keychain instead of App Group `UserDefaults` for production tokens.
+- revoke leaked Telegram tokens and APNs keys immediately;
+- copy the dumps in `backups/` to another machine, encrypted: they sit
+  unencrypted on the same disk as the database.
 
 ## Operations and maintenance
 
@@ -740,12 +884,38 @@ for an existing volume.
 
 ### Database backup
 
+The `backup` service writes `backups/wattnu-<date>.dump` once a day and removes
+dumps older than `BACKUP_KEEP_DAYS` (default 7). A dump is written to a
+temporary file first, so a file named `wattnu-*.dump` is always complete.
+
+```bash
+docker compose logs --tail 20 backup
+ls -lh backups/
+```
+
+Test a restore. This loads the newest dump into a throwaway container, counts
+the measurements, and leaves the real database alone:
+
+```bash
+./tools/restore-test.sh
+```
+
+The dumps live on the same disk as the database. Copy them elsewhere for a real
+backup. A manual dump still works:
+
 ```bash
 docker compose exec -T timescaledb \
   pg_dump -U energy -d energy -Fc > wattnu-$(date +%F).dump
 ```
 
-Verify that the output is non-empty and periodically test a restore separately.
+### Health
+
+```bash
+docker compose ps api
+curl -s http://127.0.0.1:8000/api/health
+```
+
+The API container reports `healthy` while it can reach the database.
 
 ### Storage usage
 
@@ -778,9 +948,21 @@ docker run --rm --entrypoint python \
   -m unittest discover -s tests -v
 ```
 
-Tests cover flow direction, the continuous one-minute threshold, reset below
-13 A, short-peak cancellation, notification deduplication, SQLite migration,
-Telegram escaping/chat targeting, and grid-load parsing/caching.
+Tests cover flow direction, the configurable limit and hold time, the reset
+below the limit, short-peak cancellation, voltage and frequency bands,
+delivery per channel, notification deduplication and retry, SQLite migration,
+Telegram escaping/chat targeting, APNs signing, routing and expired devices,
+API authentication, settings and device registration, and grid-load
+parsing/caching.
+
+The SQL behind the measurement endpoints is not covered by unit tests; it needs
+a TimescaleDB instance.
+
+### Continuous integration
+
+`.github/workflows/server.yml` runs the server tests, validates the Compose
+file, and builds the API image. `.github/workflows/app.yml` builds the app for
+iOS and macOS without signing. Each runs only when its own directory changes.
 
 ### Swift builds without signing
 
@@ -903,29 +1085,26 @@ docker compose up -d --build
 
 - WattNu is a personal project, not a certified safety or billing system.
 - The API uses one shared Bearer token and has no user management.
-- The app token is stored in App Group preferences, not Keychain.
-- Telegram does not replace electrical protection.
+- Notifications do not replace electrical protection.
+- Costs use one fixed tariff per direction; they ignore standing charges,
+  taxes, day/night rates, and dynamic prices.
+- Apple push needs a paid Apple Developer Program membership.
+- There is no Live Activity; lock-screen widgets refresh on the system's
+  schedule, roughly every fifteen minutes.
+- The app is Dutch only.
 - Grid load depends on Energy-Charts/ENTSO-E/TenneT and may be delayed.
 - The in-memory grid cache is lost when the API restarts.
-- THD is stored but not yet shown in WattApp.
-- Export is stored, but daily/monthly cards currently show imported energy.
-- Grafana listens on all host interfaces on port 3000 in the current Compose
-  configuration.
-- Database initialisation is not a migration system.
+- Backups are unencrypted and stay on the Pi unless you copy them.
 - Screenshots may be slightly behind the latest tab layout.
 
 ## Possible next steps
 
-- Keychain storage and token rotation;
-- versioned database migrations;
-- configurable alert thresholds and hold times;
-- voltage, frequency, and THD alerts;
-- export and feed-in reporting;
+- token rotation;
 - price data for dynamic energy contracts;
-- automated backups and restore tests;
-- container health and metrics endpoints;
-- CI for Python tests and Apple-platform builds;
-- improved accessibility and localisation;
+- a Live Activity during sustained high load;
+- localisation;
+- off-site, encrypted backups;
+- a metrics endpoint;
 - automatically refreshed release screenshots.
 
 ## Technology and references

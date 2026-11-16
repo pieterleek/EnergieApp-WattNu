@@ -4,6 +4,8 @@ import WidgetKit
 struct WattNuEntry: TimelineEntry {
     let date: Date
     let reading: NowReading?
+    /// True als de server niet bereikbaar was en dit de laatst bekende meting is.
+    var isCached = false
 }
 
 struct WattNuProvider: TimelineProvider {
@@ -26,9 +28,17 @@ struct WattNuProvider: TimelineProvider {
         }
     }
 
+    /// Lukt ophalen niet, dan tonen we de laatst bekende meting met het
+    /// tijdstip erbij in plaats van een lege widget.
     private func loadEntry() async -> WattNuEntry {
-        let reading = try? await APIClient.current?.now()
-        return WattNuEntry(date: .now, reading: reading)
+        if let reading = try? await APIClient.current?.now() {
+            AppSettings.cacheReading(reading)
+            return WattNuEntry(date: .now, reading: reading)
+        }
+        guard APIClient.current != nil, let cached = AppSettings.cachedReading else {
+            return WattNuEntry(date: .now, reading: nil)
+        }
+        return WattNuEntry(date: .now, reading: cached, isCached: true)
     }
 }
 
@@ -43,20 +53,76 @@ struct WattNuWidgetView: View {
     let entry: WattNuEntry
 
     var body: some View {
-        Group {
-            if let reading = entry.reading {
-                switch family {
-                case .systemMedium: medium(reading)
-                default: small(reading)
-                }
-            } else {
-                Text("Geen verbinding")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .containerBackground(.fill.tertiary, for: .widget)
+        content
+            .containerBackground(.fill.tertiary, for: .widget)
     }
+
+    @ViewBuilder
+    private var content: some View {
+        if let reading = entry.reading {
+            #if os(iOS)
+            if family == .accessoryCircular {
+                circular(reading)
+            } else if family == .accessoryRectangular {
+                rectangular(reading)
+            } else if family == .accessoryInline {
+                Text("\(Format.power(reading.powerTotal)) · \(Format.number(reading.todayKwh)) kWh")
+            } else if family == .systemMedium {
+                medium(reading)
+            } else {
+                small(reading)
+            }
+            #else
+            if family == .systemMedium {
+                medium(reading)
+            } else {
+                small(reading)
+            }
+            #endif
+        } else {
+            Text("Geen verbinding")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Ondertitel: verbruik van vandaag, of het tijdstip van een oude meting.
+    private func subtitle(_ reading: NowReading) -> Text {
+        if entry.isCached, let time = reading.time {
+            return Text("Laatst \(time, style: .time)")
+        }
+        return Text("Vandaag \(Format.number(reading.todayKwh)) kWh")
+    }
+
+    private func highestPhase(_ reading: NowReading) -> Double {
+        reading.currents.dropLast().map(\.amps).max() ?? 0
+    }
+
+    #if os(iOS)
+    private func circular(_ reading: NowReading) -> some View {
+        Gauge(value: min(highestPhase(reading), AppSettings.fuseAmps), in: 0...AppSettings.fuseAmps) {
+            Image(systemName: "bolt.fill")
+        } currentValueLabel: {
+            Text(Format.number((reading.powerTotal ?? 0) / 1000))
+        }
+        .gaugeStyle(.accessoryCircular)
+        .accessibilityLabel("Vermogen")
+        .accessibilityValue(Format.power(reading.powerTotal))
+    }
+
+    private func rectangular(_ reading: NowReading) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(Format.power(reading.powerTotal))
+                .font(.headline.monospacedDigit())
+            subtitle(reading)
+            Text(reading.currents.dropLast()
+                .map { "\($0.name) \(Format.number($0.amps, decimals: 0))" }
+                .joined(separator: " · ") + " A")
+        }
+        .font(.caption)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    #endif
 
     private func small(_ reading: NowReading) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -78,9 +144,9 @@ struct WattNuWidgetView: View {
                 .font(.system(.title2, design: .rounded).weight(.bold).monospacedDigit())
                 .minimumScaleFactor(0.7)
                 .lineLimit(1)
-            Text("Vandaag \(Format.number(reading.todayKwh)) kWh")
+            subtitle(reading)
                 .font(.caption2)
-                .foregroundStyle(reading.stale ? Color.orange : Color.secondary)
+                .foregroundStyle(reading.stale || entry.isCached ? Color.orange : Color.secondary)
         }
     }
 
@@ -96,12 +162,21 @@ struct WattNuWidgetView: View {
 
 @main
 struct WattNuWidget: Widget {
+    /// Vergrendelschermwidgets bestaan alleen op iOS.
+    private static var families: [WidgetFamily] {
+        #if os(iOS)
+        return [.systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular, .accessoryInline]
+        #else
+        return [.systemSmall, .systemMedium]
+        #endif
+    }
+
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "WattNuWidget", provider: WattNuProvider()) { entry in
             WattNuWidgetView(entry: entry)
         }
         .configurationDisplayName("WattNu")
         .description("Vermogen en stroom per fase.")
-        .supportedFamilies([.systemSmall, .systemMedium])
+        .supportedFamilies(Self.families)
     }
 }
