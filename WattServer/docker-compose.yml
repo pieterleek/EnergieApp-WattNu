@@ -41,7 +41,9 @@ services:
       timescaledb:
         condition: service_healthy
     ports:
-      - "${GRAFANA_PORT:-3000}:3000"
+      # Standaard alleen lokaal; bereik Grafana via `tailscale serve` of zet
+      # GRAFANA_BIND=0.0.0.0 in .env voor toegang vanaf het hele netwerk.
+      - "${GRAFANA_BIND:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?zet GRAFANA_ADMIN_PASSWORD in .env}
       GF_USERS_ALLOW_SIGN_UP: "false"
@@ -53,24 +55,67 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
 
-  # Alleen-lezen API voor WattNu. Gebruikt dezelfde leesrol als Grafana.
+  # Werkt het schema bij en maakt de leesrol van de API aan. Draait bij elke
+  # start één keer en stopt dan; de API wacht tot dit gelukt is.
+  migrate:
+    build: ./api
+    restart: "no"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      MIGRATION_DSN: host=timescaledb port=5432 dbname=energy user=energy password=${POSTGRES_PASSWORD}
+      API_DB_PASSWORD: ${API_DB_PASSWORD:-${GRAFANA_DB_PASSWORD}}
+    volumes:
+      - ./db/migrations:/migrations:ro
+    healthcheck:
+      disable: true
+    command: ["python", "migrate.py"]
+
+  # API voor WattNu. Leest de metingen met een eigen alleen-lezen rol; alleen
+  # meldingsvoorkeuren en aangemelde apparaten worden lokaal opgeslagen.
   api:
     build: ./api
     restart: unless-stopped
     depends_on:
       timescaledb:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       # Alleen lokaal: tailscale serve is de enige weg naar binnen.
       - "127.0.0.1:${API_PORT:-8000}:8000"
     environment:
       API_TOKEN: ${API_TOKEN:?zet API_TOKEN in .env}
-      DATABASE_DSN: host=timescaledb port=5432 dbname=energy user=grafana_ro password=${GRAFANA_DB_PASSWORD}
+      DATABASE_DSN: host=timescaledb port=5432 dbname=energy user=wattnu_api password=${API_DB_PASSWORD:-${GRAFANA_DB_PASSWORD}}
       NOTIFICATION_DB_PATH: /data/notifications.sqlite3
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      # Apple-push: leg het .p8-bestand in ./secrets en noem het hier.
+      APNS_KEY_FILE: ${APNS_KEY_FILE:-}
+      APNS_KEY_ID: ${APNS_KEY_ID:-}
+      APNS_TEAM_ID: ${APNS_TEAM_ID:-}
+      APNS_BUNDLE_ID: ${APNS_BUNDLE_ID:-io.qman.wattnu}
     volumes:
       - api-data:/data
+      - ./secrets:/secrets:ro
+
+  # Dagelijkse pg_dump naar ./backups; bewaart standaard een week.
+  # Hersteltest: ./tools/restore-test.sh
+  backup:
+    image: timescale/timescaledb:2.17.2-pg16
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
+      TZ: Europe/Amsterdam
+    volumes:
+      - ./backups:/backups
+      - ./tools/backup.sh:/backup.sh:ro
+    entrypoint: ["/bin/sh", "/backup.sh"]
 
   # Eenmalige verbindingstest: docker compose run --rm check
   check:
