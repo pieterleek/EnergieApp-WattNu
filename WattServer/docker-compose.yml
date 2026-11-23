@@ -65,7 +65,8 @@ services:
       timescaledb:
         condition: service_healthy
     environment:
-      MIGRATION_DSN: host=timescaledb port=5432 dbname=energy user=energy password=${POSTGRES_PASSWORD}
+      MIGRATION_DSN: host=timescaledb port=5432 dbname=energy user=energy
+      PGPASSWORD: ${POSTGRES_PASSWORD}
       API_DB_PASSWORD: ${API_DB_PASSWORD:-${GRAFANA_DB_PASSWORD}}
     volumes:
       - ./db/migrations:/migrations:ro
@@ -88,7 +89,8 @@ services:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     environment:
       API_TOKEN: ${API_TOKEN:?zet API_TOKEN in .env}
-      DATABASE_DSN: host=timescaledb port=5432 dbname=energy user=wattnu_api password=${API_DB_PASSWORD:-${GRAFANA_DB_PASSWORD}}
+      DATABASE_DSN: host=timescaledb port=5432 dbname=energy user=wattnu_api
+      PGPASSWORD: ${API_DB_PASSWORD:-${GRAFANA_DB_PASSWORD}}
       NOTIFICATION_DB_PATH: /data/notifications.sqlite3
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}

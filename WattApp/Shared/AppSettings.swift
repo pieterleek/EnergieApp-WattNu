@@ -5,7 +5,13 @@ import Security
 /// Het API-token staat in de Keychain; de rest is niet geheim.
 enum AppSettings {
     static let suiteName = "group.io.qman.wattnu"
-    static let store = UserDefaults(suiteName: suiteName) ?? .standard
+    static let store: UserDefaults = {
+        if FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: suiteName) != nil,
+           let shared = UserDefaults(suiteName: suiteName) {
+            return shared
+        }
+        return .standard
+    }()
 
     enum Key {
         static let server = "server"
