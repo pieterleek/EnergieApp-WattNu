@@ -124,6 +124,16 @@ class ApnsSenderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.reason, "APNs: TooManyRequests")
         self.assertEqual(len(self.store.devices()), 1)
 
+    async def test_topic_mismatch_keeps_device_and_explains_bundle_id(self):
+        self.store.register_device(IOS, "ios", "sandbox")
+        client = CaptureClient({IOS: FakeResponse(400, "DeviceTokenNotForTopic")})
+
+        result = await self.sender(client).send("a", "b")
+
+        self.assertFalse(result.sent)
+        self.assertIn("APNS_BUNDLE_ID=io.qman.wattnu", result.reason)
+        self.assertEqual(len(self.store.devices()), 1)
+
     async def test_unusable_key_does_not_raise(self):
         self.store.register_device(IOS, "ios", "production")
         sender = ApnsSender(self.store, "geen sleutel", "K", "T", "io.qman.wattnu",

@@ -18,8 +18,6 @@ jobs:
         include:
           - name: iOS
             destination: generic/platform=iOS Simulator
-          - name: macOS
-            destination: generic/platform=macOS
     name: Build ${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4

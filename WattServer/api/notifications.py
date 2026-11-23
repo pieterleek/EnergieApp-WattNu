@@ -74,7 +74,9 @@ class NotificationSettings:
     frequency_alerts: bool = False
     pieter_mode: bool = True
     price_import: float | None = None
+    price_import_offpeak: float | None = None
     price_export: float | None = None
+    fixed_daily_cost: float | None = None
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -97,7 +99,9 @@ _SETTINGS_COLUMNS = {
     "frequency_alerts": "INTEGER NOT NULL DEFAULT 0",
     "pieter_mode": "INTEGER NOT NULL DEFAULT 1",
     "price_import": "REAL",
+    "price_import_offpeak": "REAL",
     "price_export": "REAL",
+    "fixed_daily_cost": "REAL",
 }
 _FIELD_TYPES = {field.name: field.type for field in fields(NotificationSettings)}
 

@@ -56,8 +56,11 @@ struct APIClient: Sendable {
         try await get("compare")
     }
 
-    func gridLoad(days: Int = 7) async throws -> GridLoadResponse {
-        try await get("grid-load", ["days": days])
+    func costs(period: CostPeriod, count: Int? = nil) async throws -> CostsResponse {
+        var query = ["period": period.rawValue]
+        if let count { query["count"] = String(count) }
+        let data = try await request("costs", query: query)
+        return try Self.decode(data)
     }
 
     // MARK: Instellingen en meldingen
@@ -110,6 +113,7 @@ struct APIClient: Sendable {
 
         var request = URLRequest(url: url)
         request.httpMethod = method
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = method == "GET" ? 8 : 12
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let body {
@@ -141,6 +145,15 @@ struct APIClient: Sendable {
 
     private static func errorDetail(from data: Data) -> String? {
         struct ErrorBody: Decodable { let detail: String }
-        return try? JSONDecoder().decode(ErrorBody.self, from: data).detail
+        if let single = try? JSONDecoder().decode(ErrorBody.self, from: data) {
+            return single.detail
+        }
+        struct ValidationItem: Decodable { let msg: String }
+        struct ValidationBody: Decodable { let detail: [ValidationItem] }
+        if let list = try? JSONDecoder().decode(ValidationBody.self, from: data),
+           let first = list.detail.first?.msg {
+            return first
+        }
+        return nil
     }
 }

@@ -30,6 +30,7 @@ services:
       MODBUS_HOST: ${MODBUS_HOST:?zet MODBUS_HOST in .env}
       MODBUS_PORT: ${MODBUS_PORT:-502}
       MODBUS_MODE: ${MODBUS_MODE:-TCP}
+      MODBUS_SLAVE: ${MODBUS_SLAVE:-1}
       PGPASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
@@ -95,7 +96,7 @@ services:
       APNS_KEY_FILE: ${APNS_KEY_FILE:-}
       APNS_KEY_ID: ${APNS_KEY_ID:-}
       APNS_TEAM_ID: ${APNS_TEAM_ID:-}
-      APNS_BUNDLE_ID: ${APNS_BUNDLE_ID:-io.qman.wattnu}
+      APNS_BUNDLE_ID: ${APNS_BUNDLE_ID:-io.qman.WattNu}
     volumes:
       - api-data:/data
       - ./secrets:/secrets:ro

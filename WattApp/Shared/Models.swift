@@ -18,13 +18,26 @@ struct NowReading: Codable, Sendable {
     var currentThdL2: Double?
     var currentThdL3: Double?
     var todayKwh: Double
+    var weekKwh: Double?
     var monthKwh: Double
+    var yearKwh: Double?
     var todayExportKwh: Double?
+    var weekExportKwh: Double?
     var monthExportKwh: Double?
+    var yearExportKwh: Double?
     var stale: Bool
 
     var currents: [(name: String, amps: Double)] {
         [("L1", currentL1 ?? 0), ("L2", currentL2 ?? 0), ("L3", currentL3 ?? 0), ("N", currentN ?? 0)]
+    }
+
+    var phaseReadings: [(name: String, amps: Double, isExporting: Bool)] {
+        [
+            ("L1", currentL1 ?? 0, (powerL1 ?? 0) < -5),
+            ("L2", currentL2 ?? 0, (powerL2 ?? 0) < -5),
+            ("L3", currentL3 ?? 0, (powerL3 ?? 0) < -5),
+            ("N", currentN ?? 0, false),
+        ]
     }
 }
 
@@ -73,20 +86,79 @@ struct Peak: Codable, Sendable, Identifiable {
     var id: Date { time }
 }
 
-struct GridLoadPoint: Codable, Sendable, Identifiable {
-    var time: Date
-    var loadMw: Double
+enum CostPeriod: String, CaseIterable, Identifiable, Codable, Sendable {
+    case day
+    case week
+    case month
+    case year
 
-    var id: Date { time }
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .day: return "Dag"
+        case .week: return "Week"
+        case .month: return "Maand"
+        case .year: return "Jaar"
+        }
+    }
+
+    var perLabel: String {
+        switch self {
+        case .day: return "per dag"
+        case .week: return "per week"
+        case .month: return "per maand"
+        case .year: return "per jaar"
+        }
+    }
+
+    var defaultCount: Int {
+        switch self {
+        case .day: return 30
+        case .week: return 26
+        case .month: return 12
+        case .year: return 10
+        }
+    }
 }
 
-struct GridLoadResponse: Codable, Sendable {
-    var generatedAt: Date
-    var intervalMinutes: Int
-    var source: String
-    var license: String
-    var stale: Bool
-    var points: [GridLoadPoint]
+struct CostPeriodSummary: Codable, Sendable {
+    var kwhImport: Double
+    var kwhImportPeak: Double?
+    var kwhImportOffpeak: Double?
+    var kwhExport: Double
+    var daysCount: Int?
+    var cost: Double?
+}
+
+struct CostSummary: Codable, Sendable {
+    var day: CostPeriodSummary
+    var week: CostPeriodSummary
+    var month: CostPeriodSummary
+    var year: CostPeriodSummary
+}
+
+struct CostEntry: Codable, Sendable, Identifiable {
+    var start: Date
+    var localDate: String
+    var kwhImport: Double
+    var kwhImportPeak: Double?
+    var kwhImportOffpeak: Double?
+    var kwhExport: Double
+    var daysCount: Int?
+    var cost: Double?
+
+    var id: String { localDate }
+}
+
+struct CostsResponse: Codable, Sendable {
+    var period: CostPeriod
+    var priceImport: Double?
+    var priceImportOffpeak: Double?
+    var priceExport: Double?
+    var fixedDailyCost: Double?
+    var summary: CostSummary
+    var entries: [CostEntry]
 }
 
 /// Sluipverbruik van één nacht.
@@ -127,13 +199,17 @@ struct ServerSettings: Codable, Sendable, Equatable {
     var frequencyAlerts = false
     var pieterMode = true
     var priceImport: Double?
+    var priceImportOffpeak: Double?
     var priceExport: Double?
+    var fixedDailyCost: Double?
 }
 
 struct NotificationChannels: Codable, Sendable, Equatable {
     var telegram = false
     var push = false
     var pushDevices = 0
+    var pushError: String?
+    var apnsBundleId: String?
 }
 
 struct SettingsEnvelope: Codable, Sendable {
@@ -145,9 +221,11 @@ struct DeviceRegistration: Encodable, Sendable {
     let token: String
     let platform: String
     let environment: String
+    let bundleId: String?
 }
 
 struct DeviceRegistrationResponse: Decodable, Sendable {
     let registered: Bool
     let configured: Bool
+    let warning: String?
 }

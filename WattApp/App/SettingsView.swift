@@ -14,12 +14,22 @@ struct SettingsView: View {
 
     /// Gedeelde voorkeuren. De server is de bron van waarheid: we halen ze op
     /// bij het openen en sturen elke wijziging kort daarna terug.
-    @State private var remote = ServerSettings()
+    @State private var remote: ServerSettings
     @State private var lastSynced: ServerSettings?
-    @State private var channels = NotificationChannels()
-    @State private var syncStatus = "Instellingen ophalen…"
+    @State private var channels: NotificationChannels
+    @State private var syncStatus: String
     @State private var testStatus: String?
     @State private var testingChannel: String?
+    @FocusState private var isNumericFieldFocused: Bool
+    private let isPreview: Bool
+
+    init(previewSettings: ServerSettings? = nil, previewChannels: NotificationChannels? = nil) {
+        _remote = State(initialValue: previewSettings ?? ServerSettings())
+        _lastSynced = State(initialValue: previewSettings)
+        _channels = State(initialValue: previewChannels ?? NotificationChannels())
+        _syncStatus = State(initialValue: previewSettings != nil ? "Opgeslagen op de Pi." : "Instellingen ophalen…")
+        self.isPreview = previewSettings != nil
+    }
 
     private var push: PushManager { PushManager.shared }
     private var isLoaded: Bool { lastSynced != nil }
@@ -54,6 +64,14 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("Instellingen")
+        #if os(iOS)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Gereed") { isNumericFieldFocused = false }
+            }
+        }
+        #endif
         .onChange(of: server) { WidgetCenter.shared.reloadAllTimelines() }
         .onChange(of: token) {
             AppSettings.setToken(token)
@@ -63,9 +81,18 @@ struct SettingsView: View {
         .onChange(of: pieterMode) { remote.pieterMode = pieterMode }
         .onChange(of: pushEnabled) {
             Task {
-                if pushEnabled { await push.enable() } else { await push.disable() }
-                await refreshChannels()
+                if pushEnabled {
+                    if isLoaded && !remote.pushEnabled {
+                        remote.pushEnabled = true
+                    }
+                    await push.enable()
+                } else {
+                    await push.disable()
+                }
             }
+        }
+        .onChange(of: push.registrationVersion) {
+            Task { await refreshChannels() }
         }
         .task { await loadRemote() }
         // Wacht even na de laatste wijziging, zodat een stepper niet bij elke
@@ -153,15 +180,27 @@ struct SettingsView: View {
                 Text("Bottoken of chat-ID ontbreekt nog op de Pi.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
+            Toggle("Apple-push (alle apparaten)", isOn: $remote.pushEnabled)
             Toggle("Pushmeldingen op dit apparaat", isOn: $pushEnabled)
             if !push.status.isEmpty {
                 Text(push.status).font(.footnote).foregroundStyle(.secondary)
-            } else if !channels.push {
-                Text("De APNs-sleutel ontbreekt nog op de Pi.")
-                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            if !channels.push {
+                Text(channels.pushError ?? "De APNs-sleutel ontbreekt nog op de Pi.")
+                    .font(.footnote).foregroundStyle(.orange)
             } else {
                 Text("Aangemelde apparaten: \(channels.pushDevices)")
                     .font(.footnote).foregroundStyle(.secondary)
+                if let serverBundle = channels.apnsBundleId,
+                   let appBundle = Bundle.main.bundleIdentifier,
+                   serverBundle != appBundle {
+                    Text("Let op: app Bundle-ID (\(appBundle)) wijkt af van APNS_BUNDLE_ID op de Pi (\(serverBundle)).")
+                        .font(.footnote).foregroundStyle(.orange)
+                }
+            }
+            if !remote.enabled && (pushEnabled || remote.telegramEnabled) {
+                Text("Let op: zet hierboven eerst 'Meldingen' aan, anders verstuurt de Pi alleen testmeldingen en geen echte alarmen.")
+                    .font(.footnote).foregroundStyle(.orange)
             }
             testButton("Stuur Telegram-test", channel: "telegram", systemImage: "paperplane")
                 .disabled(!channels.telegram || testingChannel != nil)
@@ -179,21 +218,29 @@ struct SettingsView: View {
 
     private var priceSection: some View {
         Section {
-            priceField("Afname", value: $remote.priceImport)
-            priceField("Teruglevering", value: $remote.priceExport)
+            priceField("Afname / piek (€/kWh)", placeholder: "bijv. 0,28", value: $remote.priceImport)
+            priceField("Daltarief (€/kWh)", placeholder: "optioneel", value: $remote.priceImportOffpeak)
+            priceField("Teruglevering (€/kWh)", placeholder: "optioneel", value: $remote.priceExport)
+            priceField("Vaste kosten (€/dag)", placeholder: "optioneel", value: $remote.fixedDailyCost, allowNegative: true)
         } header: {
-            Text("Tarieven (€ per kWh)")
+            Text("Tarieven")
         } footer: {
-            Text("Met een tarief rekent WattNu verbruik om naar euro's. Laat leeg om alleen kWh te tonen. Het is een schatting met één vast tarief, geen afrekening.")
+            Text("Vul alleen Afname in voor enkeltarief, of voeg een Daltarief toe voor piek/dal (ma–vr 23:00–07:00 en weekend). Vaste kosten mag ook negatief zijn (bijv. door vermindering energiebelasting). Je kunt dit ook direct op de tab Kosten aanpassen.")
         }
     }
 
-    private func priceField(_ label: String, value: Binding<Double?>) -> some View {
+    private func priceField(
+        _ label: String,
+        placeholder: String,
+        value: Binding<Double?>,
+        allowNegative: Bool = false
+    ) -> some View {
         LabeledContent(label) {
-            TextField("bijv. 0,28", value: value, format: .number.precision(.fractionLength(0...4)))
+            TextField(placeholder, value: value, format: .number.precision(.fractionLength(0...4)))
                 .multilineTextAlignment(.trailing)
+                .focused($isNumericFieldFocused)
                 #if os(iOS)
-                .keyboardType(.decimalPad)
+                .keyboardType(allowNegative ? .numbersAndPunctuation : .decimalPad)
                 #endif
         }
     }
@@ -250,6 +297,7 @@ struct SettingsView: View {
     }
 
     private func loadRemote() async {
+        guard !isPreview else { return }
         guard let client = APIClient.current else {
             syncStatus = "Vul eerst het serveradres en API-token in."
             return
@@ -272,7 +320,7 @@ struct SettingsView: View {
     }
 
     private func saveRemote(_ settings: ServerSettings) async {
-        guard let client = APIClient.current else { return }
+        guard !isPreview, let client = APIClient.current else { return }
         do {
             let envelope = try await client.updateSettings(settings)
             lastSynced = settings
@@ -303,5 +351,35 @@ struct SettingsView: View {
         } catch {
             testStatus = "Test mislukt: \(error.localizedDescription)"
         }
+    }
+}
+
+#Preview("Instellingen") {
+    NavigationStack {
+        SettingsView(
+            previewSettings: ServerSettings(
+                enabled: true,
+                telegramEnabled: true,
+                pushEnabled: true,
+                phaseAlerts: true,
+                phaseLimitAmps: 16,
+                phaseHoldSeconds: 60,
+                staleAlerts: true,
+                dailyLimitKwh: 20,
+                voltageAlerts: false,
+                frequencyAlerts: false,
+                pieterMode: true,
+                priceImport: 0.30,
+                priceImportOffpeak: 0.24,
+                priceExport: 0.07,
+                fixedDailyCost: 0.85
+            ),
+            previewChannels: NotificationChannels(
+                telegram: true,
+                push: true,
+                pushDevices: 2,
+                apnsBundleId: "io.qman.WattNu"
+            )
+        )
     }
 }

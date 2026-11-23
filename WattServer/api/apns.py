@@ -27,7 +27,9 @@ APNS_HOSTS = {
 # Apple weigert tokens ouder dan een uur en straft te vaak vernieuwen af.
 PROVIDER_TOKEN_LIFETIME = timedelta(minutes=45)
 # Bij deze redenen komt het apparaat nooit meer terug en mag het token weg.
-DEAD_DEVICE_REASONS = {"BadDeviceToken", "Unregistered", "DeviceTokenNotForTopic"}
+# DeviceTokenNotForTopic wijst meestal op een verkeerde APNS_BUNDLE_ID op de
+# server, dus daarbij laten we het token staan en geven we een duidelijke melding.
+DEAD_DEVICE_REASONS = {"BadDeviceToken", "Unregistered"}
 DEVICE_TOKEN_PATTERN = re.compile(r"^[0-9a-f]{64,200}$")
 
 
@@ -56,23 +58,47 @@ class ApnsSender:
         self._provider_token: tuple[datetime, str] | None = None
 
     @classmethod
-    def from_environment(cls, store: NotificationStore) -> ApnsSender | None:
+    def diagnose_environment(cls) -> str | None:
+        """Geeft een leesbare oorzaak terug als APNs niet gestart kan worden, anders None."""
         key_file = os.getenv("APNS_KEY_FILE", "").strip()
         key_id = os.getenv("APNS_KEY_ID", "").strip()
         team_id = os.getenv("APNS_TEAM_ID", "").strip()
         topic = os.getenv("APNS_BUNDLE_ID", "").strip()
-        if not (key_file and key_id and team_id and topic):
-            logger.warning(
-                "Apple-push uitgeschakeld: APNS_KEY_FILE, APNS_KEY_ID, APNS_TEAM_ID "
-                "of APNS_BUNDLE_ID ontbreekt"
+        missing = [
+            name for name, value in (
+                ("APNS_KEY_FILE", key_file),
+                ("APNS_KEY_ID", key_id),
+                ("APNS_TEAM_ID", team_id),
+                ("APNS_BUNDLE_ID", topic),
             )
-            return None
+            if not value
+        ]
+        if missing:
+            return f"Ontbrekend in .env op de Pi: {', '.join(missing)}"
+        path = Path(key_file)
+        if not path.exists():
+            return f"APNs-sleutelbestand niet gevonden ({key_file})"
         try:
-            private_key = Path(key_file).read_text()
+            content = path.read_text()
+        except PermissionError:
+            return f"Geen leesrechten op {key_file} (gebruik chmod 644)"
         except OSError as error:
-            logger.warning("Apple-push uitgeschakeld: sleutelbestand niet leesbaar (%s)",
-                           type(error).__name__)
+            return f"APNs-sleutelbestand niet leesbaar ({type(error).__name__})"
+        if "PRIVATE KEY" not in content:
+            return f"APNs-sleutelbestand ({key_file}) bevat geen geldige .p8-sleutel"
+        return None
+
+    @classmethod
+    def from_environment(cls, store: NotificationStore) -> ApnsSender | None:
+        issue = cls.diagnose_environment()
+        if issue:
+            logger.warning("Apple-push uitgeschakeld: %s", issue)
             return None
+        key_file = os.getenv("APNS_KEY_FILE", "").strip()
+        key_id = os.getenv("APNS_KEY_ID", "").strip()
+        team_id = os.getenv("APNS_TEAM_ID", "").strip()
+        topic = os.getenv("APNS_BUNDLE_ID", "").strip()
+        private_key = Path(key_file).read_text()
         return cls(store, private_key, key_id, team_id, topic)
 
     def _bearer(self) -> str:
@@ -133,12 +159,25 @@ class ApnsSender:
         reason = reason or f"HTTP {response.status_code}"
         if response.status_code == 410 or reason in DEAD_DEVICE_REASONS:
             await asyncio.to_thread(self.store.remove_device, device.token)
-            logger.info("Verlopen apparaat verwijderd uit pushlijst (%s)", reason)
+            logger.info(
+                "Verlopen apparaat verwijderd uit pushlijst (%s, omgeving=%s, topic=%s)",
+                reason, device.environment, self.topic,
+            )
+        elif reason == "DeviceTokenNotForTopic":
+            logger.warning(
+                "APNs weigerde melding: DeviceTokenNotForTopic — controleer of APNS_BUNDLE_ID (%s) exact overeenkomt met de app",
+                self.topic,
+            )
+            return SendResult(
+                False,
+                f"APNs: DeviceTokenNotForTopic (controleer APNS_BUNDLE_ID={self.topic} in .env)",
+            )
         elif response.status_code == 403:
             self._provider_token = None
             logger.warning("APNs weigerde de aanmelding: %s", reason)
         else:
-            logger.warning("APNs weigerde een melding: %s", reason)
+            logger.warning("APNs weigerde een melding (%s, omgeving=%s): %s",
+                           device.platform, device.environment, reason)
         return SendResult(False, f"APNs: {reason}")
 
     async def close(self) -> None:

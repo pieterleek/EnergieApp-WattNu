@@ -111,19 +111,19 @@ Telegram; er hoeft geen extra poort open.
 
 De WattNu-app voor iPhone, iPad en Mac staat in `WattApp/`.
 
-## Nederlandse netbelasting
+## Kostenoverzicht
 
-De tab **Net** toont de totale Nederlandse elektriciteitsvraag per kwartier voor
-de laatste 24 uur, 7 dagen of 30 dagen. De API haalt dit zonder abonnement of
-persoonlijk token op bij Energy-Charts en bewaart elk antwoord 15 minuten in het
-geheugen. De onderliggende gegevens komen van ENTSO-E/TenneT en vallen onder
-CC BY 4.0. Dit staat los van een dynamisch energiecontract en van de eigen meter.
+De tab **Kosten** toont het eigen verbruik en de geschatte kosten per dag, week,
+maand en jaar op basis van het ingestelde kWh-tarief (enkeltarief of piek/dal,
+optioneel teruglevertarief en vaste kosten per dag), inclusief CSV-export. De
+berekening gebruikt `energy_hourly_range()` en de tarieven die via `/api/settings`
+op de server zijn opgeslagen.
 
 ## Instellingen op de meter
 
 De meter moet op **3P4W** staan; anders geeft het N-register 0.
-Is het Modbus-adres niet 1, pas dan `slave_id` aan in `telegraf/telegraf.conf`
-en `MODBUS_SLAVE` in `.env`.
+Is het Modbus-adres niet 1, zet dan `MODBUS_SLAVE` in `.env` (zowel Telegraf als
+het testscript lezen deze waarde).
 
 ## Opslag
 

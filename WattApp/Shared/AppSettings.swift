@@ -16,7 +16,9 @@ enum AppSettings {
         static let fuse = "fuse"
         static let pieterMode = "pieterMode"
         static let priceImport = "priceImport"
+        static let priceImportOffpeak = "priceImportOffpeak"
         static let priceExport = "priceExport"
+        static let fixedDailyCost = "fixedDailyCost"
         static let pushEnabled = "pushEnabled"
         static let pushToken = "pushToken"
         static let cachedReading = "cachedReading"
@@ -83,7 +85,9 @@ enum AppSettings {
     /// 0 betekent: niet ingesteld.
     static func cachePrices(from settings: ServerSettings) {
         store.set(settings.priceImport ?? 0, forKey: Key.priceImport)
+        store.set(settings.priceImportOffpeak ?? 0, forKey: Key.priceImportOffpeak)
         store.set(settings.priceExport ?? 0, forKey: Key.priceExport)
+        store.set(settings.fixedDailyCost ?? 0, forKey: Key.fixedDailyCost)
     }
 
     // MARK: Laatste meting, voor de widget zonder verbinding

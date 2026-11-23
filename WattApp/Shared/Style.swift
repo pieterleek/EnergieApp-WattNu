@@ -35,11 +35,27 @@ enum Format {
         value.formatted(.currency(code: "EUR").precision(.fractionLength(2)))
     }
 
-    /// Geschatte kosten bij één vast tarief; nil als er geen afnametarief is.
-    /// Een tarief van 0 betekent: niet ingesteld.
-    static func cost(importKwh: Double?, exportKwh: Double?, priceImport: Double, priceExport: Double) -> Double? {
+    /// Geschatte kosten bij enkel- of piek/daltarief plus optioneel vastrecht;
+    /// nil als er geen afnametarief is. Een tarief van 0 betekent: niet ingesteld.
+    static func cost(
+        importKwh: Double?,
+        exportKwh: Double?,
+        priceImport: Double,
+        priceExport: Double,
+        peakKwh: Double? = nil,
+        offpeakKwh: Double? = nil,
+        priceOffpeak: Double = 0,
+        daysCount: Int = 0,
+        fixedDailyCost: Double = 0
+    ) -> Double? {
         guard priceImport > 0, let importKwh else { return nil }
-        return importKwh * priceImport - (exportKwh ?? 0) * priceExport
+        let energyCost: Double
+        if priceOffpeak > 0, let peakKwh, let offpeakKwh {
+            energyCost = peakKwh * priceImport + offpeakKwh * priceOffpeak
+        } else {
+            energyCost = importKwh * priceImport
+        }
+        return energyCost - (exportKwh ?? 0) * max(priceExport, 0) + Double(daysCount) * fixedDailyCost
     }
 }
 
@@ -95,16 +111,28 @@ struct PhaseBar: View {
     let fuse: Double
     var height: CGFloat = 170
     var showsValue = true
+    var isExporting = false
 
     private var fraction: Double { min(max(amps / fuse, 0), 1) }
-    private var fill: Color { amps >= fuse ? .red : PhaseStyle.color(name) }
+    private var fill: Color {
+        if amps >= fuse { return .red }
+        return isExporting ? .l3 : PhaseStyle.color(name)
+    }
 
     var body: some View {
         VStack(spacing: 8) {
             if showsValue {
-                Text(Format.number(amps))
-                    .font(.headline.monospacedDigit())
-                    .contentTransition(.numericText())
+                HStack(spacing: 2) {
+                    if isExporting {
+                        Image(systemName: "arrow.down")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(Color.l3)
+                    }
+                    Text(Format.number(amps))
+                        .font(.headline.monospacedDigit())
+                        .foregroundStyle(isExporting ? Color.l3 : .primary)
+                        .contentTransition(.numericText())
+                }
             }
             ZStack(alignment: .bottom) {
                 Capsule().fill(Color.secondary.opacity(0.15))
@@ -120,11 +148,13 @@ struct PhaseBar: View {
             .frame(height: height)
             Text(name)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(isExporting ? Color.l3 : .secondary)
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(name == "N" ? "Nulleider" : "Fase \(name)")
-        .accessibilityValue("\(Format.number(amps)) ampère, \(Int((fraction * 100).rounded())) procent van de hoofdzekering")
+        .accessibilityValue(
+            "\(Format.number(amps)) ampère\(isExporting ? ", teruglevering" : ""), \(Int((fraction * 100).rounded())) procent van de hoofdzekering"
+        )
     }
 }

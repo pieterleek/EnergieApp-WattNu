@@ -18,8 +18,8 @@ missing meter data, voltage or frequency excursions, and a configurable daily
 energy limit.
 
 The system is designed around local ownership of data: measurement history
-stays on the Raspberry Pi. Only Telegram and Apple push notifications and the
-optional Dutch national grid-load feature use external internet services.
+stays on the Raspberry Pi. Only Telegram and Apple push notifications use
+external internet services.
 
 > [!WARNING]
 > Work inside a distribution board must be performed by a qualified electrician.
@@ -60,8 +60,9 @@ optional Dutch national grid-load feature use external internet services.
 - Compares this week and month to date with the same stretch of the previous
   period and of last year.
 - Shows feed-in per day, night-time standby load, and current THD.
-- Converts energy to euros with a fixed import and feed-in tariff.
-- Shows total Dutch national grid load for 24 hours, 7 days, or 30 days.
+- Converts own energy usage to euros with single or peak/off-peak kWh tariffs,
+  optional feed-in tariff, and optional fixed daily costs, with overviews per
+  day, week, month, and year plus CSV export.
 - Includes small and medium WidgetKit widgets, plus lock-screen widgets on iOS.
   A widget without a connection shows the last known reading and its time.
 - Receives Apple push notifications on iPhone, iPad, and Mac.
@@ -84,8 +85,6 @@ optional Dutch national grid-load feature use external internet services.
 - Evaluates alert rules every fifteen seconds.
 - Applies versioned database migrations on every start.
 - Writes a daily database backup and ships a restore test.
-- Retrieves Dutch grid load from Energy-Charts and caches it for fifteen
-  minutes.
 
 ### Notifications
 
@@ -109,24 +108,25 @@ talks to Apple directly, so no extra server is involved.
 ### Native app
 
 The native interface is intended for quick day-to-day use. Its five tabs cover
-live measurements, historical trends, consumption analysis, Dutch national grid
-load, and configuration.
+live measurements, historical trends, consumption analysis, cost overviews per
+day/week/month/year, and configuration.
 
 <table>
   <tr>
-    <th width="33%">Live dashboard</th>
-    <th width="33%">Dutch grid load</th>
-    <th width="33%">Settings and alerts</th>
+    <th width="50%">Live dashboard</th>
+    <th width="50%">Settings and alerts</th>
   </tr>
   <tr>
     <td><img src="images/main_dashboard.png" alt="WattNu live dashboard showing power and phase currents"></td>
-    <td><img src="images/netuse_netherlands.png" alt="WattNu Dutch national grid-load screen"></td>
     <td><img src="images/settings.png" alt="WattNu settings and Telegram notification options"></td>
   </tr>
+</table>
+
+<table>
   <tr>
-    <th>Current history</th>
-    <th>Power history</th>
-    <th>Voltage history</th>
+    <th width="33%">Current history</th>
+    <th width="33%">Power history</th>
+    <th width="33%">Voltage history</th>
   </tr>
   <tr>
     <td><img src="images/use_by_time.png" alt="WattNu historical current chart for all phases and neutral"></td>
@@ -193,7 +193,6 @@ flowchart LR
     Widget -->|HTTPS + Bearer token| TS
     TS -->|localhost:8000| API
     Browser -->|port 3000| Grafana
-    API -->|HTTPS · 15-minute data| EC[Energy-Charts API<br/>ENTSO-E / TenneT]
     API -->|HTTPS · sendMessage| TG[Telegram Bot API]
     TG --> User[Telegram user]
 ```
@@ -292,10 +291,8 @@ sequenceDiagram
 7. **Shared preferences live on the server.** Alert settings and tariffs are
    read from and written to the Pi, so two devices cannot overwrite each other
    with stale local copies.
-7. **External grid data is proxied through the Pi.** WattApp does not need to
-   know another external API. Responses are cached, with stale fallback data.
-8. **Timestamps are exchanged in UTC.** Day and month boundaries are calculated
-   explicitly in SQL using `Europe/Amsterdam`.
+8. **Timestamps are exchanged in UTC.** Day, week, month, and year boundaries
+   are calculated explicitly in SQL using `Europe/Amsterdam`.
 
 ### Time-series resolution
 
@@ -341,7 +338,6 @@ This is also the basis for separate alerts for consumption and feed-in.
     │   ├── telegram.py             # Telegram channel
     │   ├── apns.py                 # Apple push channel
     │   ├── migrate.py              # migration runner and API database role
-    │   ├── grid_load.py            # national grid load and cache
     │   └── tests/                  # unit tests
     ├── db/init/                    # base schema, first start only
     ├── db/migrations/              # numbered schema changes after that
@@ -460,9 +456,8 @@ and reports the required `MODBUS_MODE`. If the meter does not respond, check:
 - A/B polarity;
 - the SDM630 3P4W setting.
 
-If the meter address is not 1, also update `slave_id` in
-`telegraf/telegraf.conf`. `MODBUS_SLAVE` is used by the connection test;
-Telegraf currently reads its slave ID from its own configuration.
+If the meter address is not 1, set `MODBUS_SLAVE` in `.env`; both Telegraf and
+the connection test read it from there.
 
 ### 4. Start the stack
 
@@ -690,7 +685,7 @@ for JSON responses.
 | `GET` | `/api/peaks` | `days=1..3660`, `limit=1..50` | one-minute peaks |
 | `GET` | `/api/baseload` | `days=1..366` | night-time standby load per day |
 | `GET` | `/api/compare` | – | week and month to date against the previous period |
-| `GET` | `/api/grid-load` | `days=1..30` | national load per 15 min |
+| `GET` | `/api/costs` | `period=day\|week\|month\|year`, `count=1..366` | own usage and estimated costs per period |
 | `GET` | `/api/settings` | – | shared preferences and configured channels |
 | `PUT` | `/api/settings` | JSON body | replace the shared preferences |
 | `POST` | `/api/devices` | JSON body | register a device for Apple push |
@@ -739,21 +734,6 @@ curl -s -X PUT \
   }' \
   "http://127.0.0.1:8000/api/settings"
 ```
-
-### Dutch national grid load
-
-`/api/grid-load` uses the public
-[Energy-Charts API](https://api.energy-charts.info/). The underlying Dutch data
-comes from ENTSO-E/TenneT with the CC BY 4.0 attribution returned by the source.
-
-- No dynamic energy contract is required.
-- No personal Energy-Charts token is required.
-- Each period has a 15-minute in-memory cache.
-- A source failure returns an existing cache with `stale: true`.
-- A source failure without a cache returns HTTP 502.
-
-This is total Dutch electricity demand, not the local connection load and not an
-electricity-price forecast.
 
 ## Data model and retention
 
@@ -833,7 +813,6 @@ non-linear loads.
 | API → Telegram | outbound HTTPS | bot token controls the bot |
 | API → APNs | outbound HTTPS, short-lived signed token | `.p8` key can push to the app |
 | Docker → API | `/api/health` without token | reveals only that the database answers |
-| API → Energy-Charts | outbound HTTPS | external availability/quality |
 
 Current controls include an unpublished database port, loopback-only API port,
 loopback-only Grafana port, constant-time token comparison, disabled OpenAPI
@@ -952,8 +931,7 @@ Tests cover flow direction, the configurable limit and hold time, the reset
 below the limit, short-peak cancellation, voltage and frequency bands,
 delivery per channel, notification deduplication and retry, SQLite migration,
 Telegram escaping/chat targeting, APNs signing, routing and expired devices,
-API authentication, settings and device registration, and grid-load
-parsing/caching.
+API authentication, settings, device registration, and cost calculations.
 
 The SQL behind the measurement endpoints is not covered by unit tests; it needs
 a TimescaleDB instance.
@@ -1086,14 +1064,12 @@ docker compose up -d --build
 - WattNu is a personal project, not a certified safety or billing system.
 - The API uses one shared Bearer token and has no user management.
 - Notifications do not replace electrical protection.
-- Costs use one fixed tariff per direction; they ignore standing charges,
-  taxes, day/night rates, and dynamic prices.
+- Costs support single or peak/off-peak kWh tariffs, feed-in tariff, and fixed
+  daily charges, but do not fetch dynamic hourly market prices.
 - Apple push needs a paid Apple Developer Program membership.
 - There is no Live Activity; lock-screen widgets refresh on the system's
   schedule, roughly every fifteen minutes.
 - The app is Dutch only.
-- Grid load depends on Energy-Charts/ENTSO-E/TenneT and may be delayed.
-- The in-memory grid cache is lost when the API restarts.
 - Backups are unencrypted and stay on the Pi unless you copy them.
 - Screenshots may be slightly behind the latest tab layout.
 
@@ -1115,7 +1091,6 @@ docker compose up -d --build
 - [Grafana](https://grafana.com/docs/grafana/latest/)
 - [FastAPI](https://fastapi.tiangolo.com/)
 - [Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve)
-- [Energy-Charts API](https://api.energy-charts.info/)
 - [Telegram Bot API](https://core.telegram.org/bots/api)
 - [SwiftUI](https://developer.apple.com/xcode/swiftui/)
 - [Swift Charts](https://developer.apple.com/documentation/charts)

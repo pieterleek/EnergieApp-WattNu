@@ -2,19 +2,35 @@ import Charts
 import SwiftUI
 
 struct UsageView: View {
-    @State private var days: [DayUsage] = []
-    @State private var cells: [HeatCell] = []
-    @State private var peaks: [Peak] = []
-    @State private var baseload: [BaseloadDay] = []
+    @State private var days: [DayUsage]
+    @State private var cells: [HeatCell]
+    @State private var peaks: [Peak]
+    @State private var baseload: [BaseloadDay]
     @State private var comparison: Comparison?
     @State private var errorText: String?
     @State private var isLoading = false
     @AppStorage(AppSettings.Key.pieterMode, store: AppSettings.store) private var pieterMode = true
     @AppStorage(AppSettings.Key.priceImport, store: AppSettings.store) private var priceImport = 0.0
     @AppStorage(AppSettings.Key.priceExport, store: AppSettings.store) private var priceExport = 0.0
+    private let isPreview: Bool
     private let weekdayNames = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"]
     private let weekdays = ["Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"]
     private let hours = (0..<24).map { String(format: "%02d", $0) }
+
+    init(
+        previewDays: [DayUsage]? = nil,
+        previewCells: [HeatCell]? = nil,
+        previewPeaks: [Peak]? = nil,
+        previewBaseload: [BaseloadDay]? = nil,
+        previewComparison: Comparison? = nil
+    ) {
+        _days = State(initialValue: previewDays ?? [])
+        _cells = State(initialValue: previewCells ?? [])
+        _peaks = State(initialValue: previewPeaks ?? [])
+        _baseload = State(initialValue: previewBaseload ?? [])
+        _comparison = State(initialValue: previewComparison)
+        self.isPreview = previewDays != nil
+    }
 
     var body: some View {
         ScrollView {
@@ -216,7 +232,7 @@ struct UsageView: View {
     }
 
     private func load() async {
-        guard let client = APIClient.current else { return }
+        guard !isPreview, let client = APIClient.current else { return }
         isLoading = true
         defer { isLoading = false }
         do {
@@ -293,179 +309,39 @@ struct ComparisonRow: View {
     }
 }
 
-enum GridSpan: Int, CaseIterable, Identifiable {
-    case day = 1
-    case week = 7
-    case month = 30
-
-    var id: Int { rawValue }
-    var label: String {
-        switch self {
-        case .day: return "24 uur"
-        case .week: return "7 dagen"
-        case .month: return "30 dagen"
+#Preview("Gebruik") {
+    let cal = Calendar.current
+    let today = cal.startOfDay(for: .now)
+    let sampleDays = (0..<14).map { offset -> DayUsage in
+        let date = cal.date(byAdding: .day, value: offset - 13, to: today)!
+        let l1 = 3.5 + Double(offset % 4) * 0.9
+        let l2 = 2.4 + Double((offset + 1) % 3) * 0.8
+        let l3 = 4.1 + Double(offset % 5) * 0.7
+        return DayUsage(day: date, kwhTotal: l1 + l2 + l3, kwhExport: Double(offset % 3) * 1.4,
+                        kwhL1: l1, kwhL2: l2, kwhL3: l3)
+    }
+    let sampleCells = (1...7).flatMap { day in
+        (0..<24).map { hour in
+            let evening = (17...21).contains(hour) ? 1.4 : (7...9).contains(hour) ? 0.8 : 0.25
+            return HeatCell(weekday: day, hour: hour, kwh: evening + Double((day + hour) % 3) * 0.15)
         }
     }
-}
-
-struct GridLoadView: View {
-    @State private var span = GridSpan.week
-    @State private var response: GridLoadResponse?
-    @State private var errorText: String?
-    @State private var isLoading = false
-    @AppStorage(AppSettings.Key.pieterMode, store: AppSettings.store) private var pieterMode = true
-
-    private var points: [GridLoadPoint] { response?.points ?? [] }
-    private var latest: GridLoadPoint? { points.max { $0.time < $1.time } }
-    private var highest: GridLoadPoint? { points.max { $0.loadMw < $1.loadMw } }
-    private var lowest: GridLoadPoint? { points.min { $0.loadMw < $1.loadMw } }
-    private var topPeaks: [GridLoadPoint] {
-        Array(points.sorted { $0.loadMw > $1.loadMw }.prefix(5))
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                Picker("Periode", selection: $span) {
-                    ForEach(GridSpan.allCases) { Text($0.label).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-
-                if let errorText {
-                    Banner(text: errorText, systemImage: "wifi.exclamationmark")
-                }
-
-                if response?.stale == true {
-                    Banner(
-                        text: "De bron reageert even niet; je ziet de laatst opgehaalde netdata.",
-                        systemImage: "clock.arrow.circlepath"
-                    )
-                }
-
-                if isLoading && points.isEmpty {
-                    ProgressView("Nederlandse netbelasting ophalen…")
-                        .frame(maxWidth: .infinity, minHeight: 220)
-                } else if points.isEmpty {
-                    MeasurementPlaceholder(
-                        title: "Geen netdata",
-                        detail: "De landelijke belasting is op dit moment niet beschikbaar.",
-                        systemImage: "network.slash"
-                    )
-                } else {
-                    Card(title: "Nederland nu") { summary }
-                    Card(title: "Belasting van het stroomnet") { gridChart }
-                    Card(title: "Hoogste kwartieren") { peakList }
-                    if pieterMode {
-                        Card(title: "Pieters netrapport") {
-                            Text(pieterSummary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                    Text("Bron: \(response?.source ?? "Energy-Charts.info") · \(response?.license ?? "CC BY 4.0")")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .padding()
-            .frame(maxWidth: 760)
-            .frame(maxWidth: .infinity)
-        }
-        .refreshable { await load() }
-        .task(id: span) { await load() }
-    }
-
-    private var summary: some View {
-        HStack(spacing: 24) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Belasting nu")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(formatGigawatts(latest?.loadMw))
-                    .font(.title2.bold().monospacedDigit())
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 4) {
-                Text("Piek in periode")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(formatGigawatts(highest?.loadMw))
-                    .font(.title3.bold().monospacedDigit())
-                    .foregroundStyle(.orange)
-            }
-        }
-    }
-
-    private var gridChart: some View {
-        Chart(points) { point in
-            AreaMark(
-                x: .value("Moment", point.time),
-                y: .value("Belasting", point.loadMw / 1000)
-            )
-            .foregroundStyle(.linearGradient(
-                colors: [.orange.opacity(0.5), .orange.opacity(0.05)],
-                startPoint: .top,
-                endPoint: .bottom
-            ))
-            LineMark(
-                x: .value("Moment", point.time),
-                y: .value("Belasting", point.loadMw / 1000)
-            )
-            .foregroundStyle(.orange)
-            .lineStyle(StrokeStyle(lineWidth: 2))
-        }
-        .chartYAxisLabel("GW")
-        .frame(height: 230)
-        .accessibilityLabel("Belasting van het Nederlandse stroomnet, \(span.label)")
-        .accessibilityValue("Nu \(formatGigawatts(latest?.loadMw)), piek \(formatGigawatts(highest?.loadMw))")
-    }
-
-    private var peakList: some View {
-        VStack(spacing: 12) {
-            ForEach(topPeaks) { peak in
-                HStack {
-                    Text(peak.time.formatted(date: .abbreviated, time: .shortened))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text(formatGigawatts(peak.loadMw))
-                        .font(.headline.monospacedDigit())
-                }
-                if peak.id != topPeaks.last?.id { Divider() }
-            }
-        }
-    }
-
-    private func formatGigawatts(_ megawatts: Double?) -> String {
-        guard let megawatts else { return "–" }
-        return Format.number(megawatts / 1000, decimals: 2) + " GW"
-    }
-
-    private var pieterSummary: String {
-        guard let latest, let highest, let lowest else { return PieterCopy.noPeaks }
-        let range = highest.loadMw - lowest.loadMw
-        if latest.loadMw > lowest.loadMw + range * 0.8 {
-            return "Nederland zit dicht bij de piek. Heel het land heeft blijkbaar tegelijk de waterkoker ontdekt."
-        }
-        if latest.loadMw < lowest.loadMw + range * 0.25 {
-            return "Het net heeft een rustig kwartiertje. Zelfs de elektronen lijken koffiepauze te hebben."
-        }
-        return "Het landelijk net draait in de middenmoot. Druk genoeg om belangrijk te lijken, rustig genoeg om niet te zweten."
-    }
-
-    private func load() async {
-        guard let client = APIClient.current else { return }
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            response = try await client.gridLoad(days: span.rawValue)
-            errorText = nil
-        } catch is CancellationError {
-            return
-        } catch let error as URLError where error.code == .cancelled {
-            return
-        } catch {
-            errorText = error.localizedDescription
-        }
-    }
+    let sampleBaseload = sampleDays.map { BaseloadDay(day: $0.day, watts: 185 + Double(Int($0.kwhTotal ?? 0) % 4) * 12) }
+    let samplePeaks = [
+        Peak(time: .now.addingTimeInterval(-7200), powerTotal: 7840),
+        Peak(time: .now.addingTimeInterval(-86400), powerTotal: 6520),
+        Peak(time: .now.addingTimeInterval(-172800), powerTotal: 5910),
+    ]
+    let sampleComparison = Comparison(
+        weekKwh: 74.2, weekExportKwh: 12.1, previousWeekKwh: 81.5, previousWeekExportKwh: 9.4,
+        monthKwh: 268.0, monthExportKwh: 44.0, previousMonthKwh: 249.0, previousMonthExportKwh: 38.0,
+        lastYearMonthKwh: 290.0, lastYearMonthExportKwh: 31.0
+    )
+    return UsageView(
+        previewDays: sampleDays,
+        previewCells: sampleCells,
+        previewPeaks: samplePeaks,
+        previewBaseload: sampleBaseload,
+        previewComparison: sampleComparison
+    )
 }

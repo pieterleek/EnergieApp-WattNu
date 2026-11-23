@@ -8,32 +8,17 @@
 
 /* Begin PBXBuildFile section */
 		106796E09E6A061692F2CBCC /* Style.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B58017D75BD8865B5A57D10 /* Style.swift */; };
-		12FE78F516C8A600A27F0189 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 645F359D82E6A8C21D155C3B /* APIClient.swift */; };
 		2AB53B9C5CD1C0AD4FC946CB /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AEB2AB534553D3CE122E47C /* SettingsView.swift */; };
-		437DE03045187F297A1F9C6F /* WattNuWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 658896CB803161AF590E06CB /* WattNuWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		43B78C28B2A5F8EC5FAFDFB3 /* WattNuApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B76F10E39043D78EC7B57AF /* WattNuApp.swift */; };
 		685B8D71DADFFC2915779221 /* NowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EE827EAA7A85FC27BBC2B0F /* NowView.swift */; };
 		77DAB3837BA6AA16B6E05315 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1518B915B5D4F8EF3BB1DC9 /* HistoryView.swift */; };
-		9405CB644EE63FF62E43AC59 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83B26288AFA4ECDD911A00A7 /* AppSettings.swift */; };
 		961B967F54EEDDA70173C962 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1F99EA49F7CB7B3DBB19EF82 /* Assets.xcassets */; };
 		9F04936C488EAD5F9182C3D4 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83B26288AFA4ECDD911A00A7 /* AppSettings.swift */; };
-		A9C92952197160CF5CE0DFA1 /* Style.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B58017D75BD8865B5A57D10 /* Style.swift */; };
 		AF507E26848BA04CD0D0837B /* UsageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA75E4FEE53063D12A5C10F7 /* UsageView.swift */; };
-		C4B595DDC75018F3461DB204 /* WattNuWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22CFE6CA6BCCB286295EE1D3 /* WattNuWidget.swift */; };
+		C057B01D0001000200030002 /* CostsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C057F11E0001000200030001 /* CostsView.swift */; };
 		D532065FBBCD79475A6E572E /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 645F359D82E6A8C21D155C3B /* APIClient.swift */; };
 		E87D8E3B4EC374033A8C7276 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFAF9ED4B553977FE40CDB3D /* Models.swift */; };
-		FAE9EF99E82FBFDD2CA37850 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFAF9ED4B553977FE40CDB3D /* Models.swift */; };
 /* End PBXBuildFile section */
-
-/* Begin PBXContainerItemProxy section */
-		5B2B8E394B9AE1EC415F649C /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 2CA447CCAA483E12B63964F0 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = B0866348EDD477D7518D0481;
-			remoteInfo = WattNuWidget;
-		};
-/* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
 		DF9437688B61E0696E93A995 /* Embed Foundation Extensions */ = {
@@ -42,7 +27,6 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				437DE03045187F297A1F9C6F /* WattNuWidget.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -55,13 +39,13 @@
 		22CFE6CA6BCCB286295EE1D3 /* WattNuWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WattNuWidget.swift; sourceTree = "<group>"; };
 		3B76F10E39043D78EC7B57AF /* WattNuApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WattNuApp.swift; sourceTree = "<group>"; };
 		645F359D82E6A8C21D155C3B /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
-		658896CB803161AF590E06CB /* WattNuWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = WattNuWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		83B26288AFA4ECDD911A00A7 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		8B58017D75BD8865B5A57D10 /* Style.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Style.swift; sourceTree = "<group>"; };
 		9EE827EAA7A85FC27BBC2B0F /* NowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowView.swift; sourceTree = "<group>"; };
 		AFAF9ED4B553977FE40CDB3D /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		C057F11E0001000200030001 /* CostsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CostsView.swift; sourceTree = "<group>"; };
 		DA75E4FEE53063D12A5C10F7 /* UsageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageView.swift; sourceTree = "<group>"; };
-		E4DFC2F4CA13A9A79C51A0D7 /* WattNu.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = WattNu.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E4DFC2F4CA13A9A79C51A0D7 /* WattNu.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WattNu.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F1518B915B5D4F8EF3BB1DC9 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -88,7 +72,6 @@
 			isa = PBXGroup;
 			children = (
 				E4DFC2F4CA13A9A79C51A0D7 /* WattNu.app */,
-				658896CB803161AF590E06CB /* WattNuWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -108,6 +91,7 @@
 			isa = PBXGroup;
 			children = (
 				1F99EA49F7CB7B3DBB19EF82 /* Assets.xcassets */,
+				C057F11E0001000200030001 /* CostsView.swift */,
 				F1518B915B5D4F8EF3BB1DC9 /* HistoryView.swift */,
 				9EE827EAA7A85FC27BBC2B0F /* NowView.swift */,
 				1AEB2AB534553D3CE122E47C /* SettingsView.swift */,
@@ -131,7 +115,6 @@
 			buildRules = (
 			);
 			dependencies = (
-				5CA3560122677D32CD65AE3A /* PBXTargetDependency */,
 			);
 			name = WattNu;
 			packageProductDependencies = (
@@ -140,23 +123,6 @@
 			productReference = E4DFC2F4CA13A9A79C51A0D7 /* WattNu.app */;
 			productType = "com.apple.product-type.application";
 		};
-		B0866348EDD477D7518D0481 /* WattNuWidget */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 0616A88BC15F7DB968DB2C63 /* Build configuration list for PBXNativeTarget "WattNuWidget" */;
-			buildPhases = (
-				BD1D9CE8843F6DFDFD9BA973 /* Sources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = WattNuWidget;
-			packageProductDependencies = (
-			);
-			productName = WattNuWidget;
-			productReference = 658896CB803161AF590E06CB /* WattNuWidget.appex */;
-			productType = "com.apple.product-type.app-extension";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -164,17 +130,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 1430;
-				TargetAttributes = {
-					7076CE5D0DDDCEB41E1DFCCB = {
-						DevelopmentTeam = 729CK768LX;
-						ProvisioningStyle = Automatic;
-					};
-					B0866348EDD477D7518D0481 = {
-						DevelopmentTeam = 729CK768LX;
-						ProvisioningStyle = Automatic;
-					};
-				};
+				LastUpgradeCheck = 2720;
 			};
 			buildConfigurationList = A3C75DA4595E93E376E91FEA /* Build configuration list for PBXProject "WattNu" */;
 			developmentRegion = en;
@@ -191,7 +147,6 @@
 			projectRoot = "";
 			targets = (
 				7076CE5D0DDDCEB41E1DFCCB /* WattNu */,
-				B0866348EDD477D7518D0481 /* WattNuWidget */,
 			);
 		};
 /* End PBXProject section */
@@ -214,6 +169,7 @@
 			files = (
 				D532065FBBCD79475A6E572E /* APIClient.swift in Sources */,
 				9F04936C488EAD5F9182C3D4 /* AppSettings.swift in Sources */,
+				C057B01D0001000200030002 /* CostsView.swift in Sources */,
 				77DAB3837BA6AA16B6E05315 /* HistoryView.swift in Sources */,
 				E87D8E3B4EC374033A8C7276 /* Models.swift in Sources */,
 				685B8D71DADFFC2915779221 /* NowView.swift in Sources */,
@@ -224,27 +180,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		BD1D9CE8843F6DFDFD9BA973 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				12FE78F516C8A600A27F0189 /* APIClient.swift in Sources */,
-				9405CB644EE63FF62E43AC59 /* AppSettings.swift in Sources */,
-				FAE9EF99E82FBFDD2CA37850 /* Models.swift in Sources */,
-				A9C92952197160CF5CE0DFA1 /* Style.swift in Sources */,
-				C4B595DDC75018F3461DB204 /* WattNuWidget.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXTargetDependency section */
-		5CA3560122677D32CD65AE3A /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = B0866348EDD477D7518D0481 /* WattNuWidget */;
-			targetProxy = 5B2B8E394B9AE1EC415F649C /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		3447B81ADDCF95B73E90F041 /* Debug */ = {
@@ -281,9 +217,11 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -305,6 +243,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -317,10 +256,11 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				"CODE_SIGN_ENTITLEMENTS[sdk=iphone*]" = "Config/App-iOS.entitlements";
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Config/App-macOS.entitlements";
-				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 729CK768LX;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = KS4R3H6RJD;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Config/App-Info.plist";
@@ -331,14 +271,16 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = io.qman.wattnu;
+				PRODUCT_BUNDLE_IDENTIFIER = io.qman.WattNu;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
-				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_VERSION = 5.10;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -348,10 +290,11 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				"CODE_SIGN_ENTITLEMENTS[sdk=iphone*]" = "Config/App-iOS.entitlements";
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Config/App-macOS.entitlements";
-				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 729CK768LX;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = KS4R3H6RJD;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Config/App-Info.plist";
@@ -362,14 +305,16 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = io.qman.wattnu;
+				PRODUCT_BUNDLE_IDENTIFIER = io.qman.WattNu;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
-				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_VERSION = 5.10;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -407,9 +352,11 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -424,82 +371,16 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
 		};
-		880F7CD17DE374A841F1E0EF /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				"CODE_SIGN_ENTITLEMENTS[sdk=iphone*]" = "Config/Widget-iOS.entitlements";
-				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Config/Widget-macOS.entitlements";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 729CK768LX;
-				ENABLE_HARDENED_RUNTIME = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "Config/Widget-Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = WattNu;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = io.qman.wattnu.widget;
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
-				SUPPORTS_MACCATALYST = NO;
-				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
-				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
-				SWIFT_VERSION = 5.10;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
-		B29389CAFC58B40DD3B1820A /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				"CODE_SIGN_ENTITLEMENTS[sdk=iphone*]" = "Config/Widget-iOS.entitlements";
-				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Config/Widget-macOS.entitlements";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 729CK768LX;
-				ENABLE_HARDENED_RUNTIME = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "Config/Widget-Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = WattNu;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = io.qman.wattnu.widget;
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
-				SUPPORTS_MACCATALYST = NO;
-				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
-				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
-				SWIFT_VERSION = 5.10;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		0616A88BC15F7DB968DB2C63 /* Build configuration list for PBXNativeTarget "WattNuWidget" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				880F7CD17DE374A841F1E0EF /* Debug */,
-				B29389CAFC58B40DD3B1820A /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Debug;
-		};
 		A3C75DA4595E93E376E91FEA /* Build configuration list for PBXProject "WattNu" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

@@ -11,7 +11,6 @@ from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
 from apns import ApnsSender, valid_device_token
-from grid_load import GridLoadClient, GridLoadError
 from notifications import NotificationService, NotificationStore
 from telegram import TelegramSender
 
@@ -20,10 +19,15 @@ STALE_AFTER = timedelta(seconds=60)
 LOCAL_TZ = "Europe/Amsterdam"
 # Sluipverbruik: het rustigste deel van de nacht, lokale tijd.
 BASELOAD_HOURS = (0, 5)
+COST_PERIOD_DEFAULTS = {
+    "day": 30,
+    "week": 26,
+    "month": 12,
+    "year": 10,
+}
 
 pool = ConnectionPool(os.environ["DATABASE_DSN"], min_size=1, max_size=4, open=False,
                       kwargs={"row_factory": dict_row, "autocommit": True})
-grid_load_client = GridLoadClient()
 
 
 @asynccontextmanager
@@ -35,6 +39,9 @@ async def lifespan(application: FastAPI):
         senders["telegram"] = telegram
     if push := ApnsSender.from_environment(store):
         senders["push"] = push
+        application.state.push_error = None
+    else:
+        application.state.push_error = ApnsSender.diagnose_environment()
     service = NotificationService(store, senders, now)
     application.state.notification_store = store
     application.state.notification_service = service
@@ -72,7 +79,9 @@ class Settings(BaseModel):
     frequency_alerts: bool = False
     pieter_mode: bool = True
     price_import: float | None = Field(default=None, ge=0, le=10)
+    price_import_offpeak: float | None = Field(default=None, ge=0, le=10)
     price_export: float | None = Field(default=None, ge=0, le=10)
+    fixed_daily_cost: float | None = Field(default=None, ge=-20, le=100)
 
     @model_validator(mode="after")
     def voltage_band_is_ordered(self):
@@ -94,6 +103,36 @@ class Device(BaseModel):
     token: str = Field(min_length=64, max_length=200)
     platform: Literal["ios", "macos"]
     environment: Literal["sandbox", "production"]
+    bundle_id: str | None = Field(default=None, max_length=200)
+
+
+def calculate_cost(
+    kwh_import: float,
+    kwh_export: float,
+    price_import: float | None,
+    price_export: float | None,
+    *,
+    kwh_import_peak: float | None = None,
+    kwh_import_offpeak: float | None = None,
+    price_import_offpeak: float | None = None,
+    days_count: int = 0,
+    fixed_daily_cost: float | None = None,
+) -> float | None:
+    """Berekent de geschatte energiekosten in euro's (enkel of piek/dal + vastrecht)."""
+    if price_import is None or price_import <= 0:
+        return None
+    if (
+        price_import_offpeak is not None
+        and price_import_offpeak > 0
+        and kwh_import_peak is not None
+        and kwh_import_offpeak is not None
+    ):
+        energy_cost = kwh_import_peak * price_import + kwh_import_offpeak * price_import_offpeak
+    else:
+        energy_cost = kwh_import * price_import
+    export_rate = price_export if price_export is not None and price_export > 0 else 0.0
+    fixed = (fixed_daily_cost or 0.0) * days_count
+    return round(energy_cost - kwh_export * export_rate + fixed, 2)
 
 
 def clean(row: dict) -> dict:
@@ -122,13 +161,20 @@ def service() -> NotificationService:
 
 
 def settings_response() -> dict:
+    senders = service().senders
+    push_sender = senders.get("push")
+    channels = {
+        "telegram": "telegram" in senders,
+        "push": push_sender is not None,
+        "push_devices": len(store().devices()),
+    }
+    if push_sender is not None and hasattr(push_sender, "topic"):
+        channels["apns_bundle_id"] = push_sender.topic
+    elif push_error := getattr(app.state, "push_error", None):
+        channels["push_error"] = push_error
     return {
         "settings": store().settings().as_dict(),
-        "channels": {
-            "telegram": "telegram" in service().senders,
-            "push": "push" in service().senders,
-            "push_devices": len(store().devices()),
-        },
+        "channels": channels,
     }
 
 
@@ -153,12 +199,23 @@ def now() -> dict:
         FROM sdm630 ORDER BY time DESC LIMIT 1""")
     latest = rows[0] if rows else {"time": None}
     energy = query("""
-        SELECT coalesce(sum(kwh_total) FILTER (WHERE bucket >= date_trunc('day', now(), %s)), 0) AS today_kwh,
-               coalesce(sum(kwh_export) FILTER (WHERE bucket >= date_trunc('day', now(), %s)), 0) AS today_export_kwh,
-               coalesce(sum(kwh_total), 0) AS month_kwh,
-               coalesce(sum(kwh_export), 0) AS month_export_kwh
-        FROM energy_hourly WHERE bucket >= date_trunc('month', now(), %s)""",
-                   (LOCAL_TZ, LOCAL_TZ, LOCAL_TZ))[0]
+        WITH edge AS (
+            SELECT date_trunc('day',   now(), %(tz)s) AS day_start,
+                   date_trunc('week',  now(), %(tz)s) AS week_start,
+                   date_trunc('month', now(), %(tz)s) AS month_start,
+                   date_trunc('year',  now(), %(tz)s) AS year_start
+        )
+        SELECT coalesce(sum(kwh_total)  FILTER (WHERE bucket >= day_start),   0) AS today_kwh,
+               coalesce(sum(kwh_export) FILTER (WHERE bucket >= day_start),   0) AS today_export_kwh,
+               coalesce(sum(kwh_total)  FILTER (WHERE bucket >= week_start),  0) AS week_kwh,
+               coalesce(sum(kwh_export) FILTER (WHERE bucket >= week_start),  0) AS week_export_kwh,
+               coalesce(sum(kwh_total)  FILTER (WHERE bucket >= month_start), 0) AS month_kwh,
+               coalesce(sum(kwh_export) FILTER (WHERE bucket >= month_start), 0) AS month_export_kwh,
+               coalesce(sum(kwh_total)  FILTER (WHERE bucket >= year_start),  0) AS year_kwh,
+               coalesce(sum(kwh_export) FILTER (WHERE bucket >= year_start),  0) AS year_export_kwh
+        FROM edge
+        CROSS JOIN LATERAL energy_hourly_range(least(edge.year_start, edge.week_start))""",
+                   {"tz": LOCAL_TZ})[0]
     seen = latest["time"]
     stale = seen is None or datetime.now(timezone.utc) - datetime.fromisoformat(seen) > STALE_AFTER
     return {**latest, **energy, "stale": stale}
@@ -179,12 +236,14 @@ def series(hours: int = Query(24, ge=1, le=24 * 366), points: int = Query(300, g
 @api.get("/daily")
 def daily(days: int = Query(30, ge=1, le=3660)) -> list[dict]:
     return query("""
-        SELECT date_trunc('day', bucket, %s) AS day,
+        SELECT date_trunc('day', bucket, %(tz)s) AS day,
                sum(kwh_total) AS kwh_total, sum(kwh_export) AS kwh_export,
                sum(kwh_l1) AS kwh_l1, sum(kwh_l2) AS kwh_l2, sum(kwh_l3) AS kwh_l3
-        FROM energy_hourly
-        WHERE bucket >= now() - make_interval(days => %s)
-        GROUP BY 1 ORDER BY 1""", (LOCAL_TZ, days))
+        FROM energy_hourly_range(
+            ((date_trunc('day', now(), %(tz)s) AT TIME ZONE %(tz)s)
+             - make_interval(days => %(offset)s)) AT TIME ZONE %(tz)s
+        )
+        GROUP BY 1 ORDER BY 1""", {"tz": LOCAL_TZ, "offset": days - 1})
 
 
 @api.get("/heatmap")
@@ -193,8 +252,8 @@ def heatmap(days: int = Query(90, ge=7, le=3660)) -> list[dict]:
         SELECT extract(isodow FROM bucket AT TIME ZONE %s)::int AS weekday,
                extract(hour FROM bucket AT TIME ZONE %s)::int AS hour,
                avg(kwh_total) AS kwh
-        FROM energy_hourly
-        WHERE whole_hour AND bucket >= now() - make_interval(days => %s)
+        FROM energy_hourly_range(now() - make_interval(days => %s))
+        WHERE whole_hour
         GROUP BY 1, 2 ORDER BY 1, 2""", (LOCAL_TZ, LOCAL_TZ, days))
 
 
@@ -258,17 +317,174 @@ def compare() -> dict:
                                       AND bucket < last_year_start + month_elapsed) AS last_year_month_kwh,
             sum(kwh_export) FILTER (WHERE bucket >= last_year_start
                                       AND bucket < last_year_start + month_elapsed) AS last_year_month_export_kwh
-        FROM energy_hourly, span
-        WHERE bucket >= last_year_start""", {"tz": LOCAL_TZ})[0]
+        FROM span
+        CROSS JOIN LATERAL energy_hourly_range(span.last_year_start)""", {"tz": LOCAL_TZ})[0]
     return row
 
 
-@api.get("/grid-load")
-def grid_load(days: int = Query(7, ge=1, le=30)) -> dict:
-    try:
-        return grid_load_client.get(days)
-    except GridLoadError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
+@api.get("/costs")
+def costs(
+    period: Literal["day", "week", "month", "year"] = Query("day"),
+    count: int | None = Query(default=None, ge=1, le=366),
+) -> dict:
+    """Eigen verbruik en geschatte kosten per dag, week, maand of jaar."""
+    current_settings = store().settings()
+    price_import = current_settings.price_import
+    price_import_offpeak = current_settings.price_import_offpeak
+    price_export = current_settings.price_export
+    fixed_daily_cost = current_settings.fixed_daily_cost
+
+    totals = query("""
+        WITH edge AS (
+            SELECT date_trunc('day',   now(), %(tz)s) AS day_start,
+                   date_trunc('week',  now(), %(tz)s) AS week_start,
+                   date_trunc('month', now(), %(tz)s) AS month_start,
+                   date_trunc('year',  now(), %(tz)s) AS year_start
+        ),
+        classified AS (
+            SELECT h.bucket,
+                   h.kwh_total,
+                   h.kwh_export,
+                   date_trunc('day', h.bucket, %(tz)s) AS local_day,
+                   (extract(isodow FROM h.bucket AT TIME ZONE %(tz)s) IN (6, 7)
+                    OR extract(hour FROM h.bucket AT TIME ZONE %(tz)s) < 7
+                    OR extract(hour FROM h.bucket AT TIME ZONE %(tz)s) >= 23) AS is_offpeak
+            FROM edge
+            CROSS JOIN LATERAL energy_hourly_range(least(edge.year_start, edge.week_start)) h
+        )
+        SELECT
+            coalesce(sum(kwh_total)  FILTER (WHERE bucket >= day_start), 0) AS day_kwh,
+            coalesce(sum(kwh_total)  FILTER (WHERE bucket >= day_start AND NOT is_offpeak), 0) AS day_peak_kwh,
+            coalesce(sum(kwh_total)  FILTER (WHERE bucket >= day_start AND is_offpeak), 0) AS day_offpeak_kwh,
+            coalesce(sum(kwh_export) FILTER (WHERE bucket >= day_start), 0) AS day_export_kwh,
+            count(DISTINCT local_day) FILTER (WHERE bucket >= day_start) AS day_days,
+
+            coalesce(sum(kwh_total)  FILTER (WHERE bucket >= week_start), 0) AS week_kwh,
+            coalesce(sum(kwh_total)  FILTER (WHERE bucket >= week_start AND NOT is_offpeak), 0) AS week_peak_kwh,
+            coalesce(sum(kwh_total)  FILTER (WHERE bucket >= week_start AND is_offpeak), 0) AS week_offpeak_kwh,
+            coalesce(sum(kwh_export) FILTER (WHERE bucket >= week_start), 0) AS week_export_kwh,
+            count(DISTINCT local_day) FILTER (WHERE bucket >= week_start) AS week_days,
+
+            coalesce(sum(kwh_total)  FILTER (WHERE bucket >= month_start), 0) AS month_kwh,
+            coalesce(sum(kwh_total)  FILTER (WHERE bucket >= month_start AND NOT is_offpeak), 0) AS month_peak_kwh,
+            coalesce(sum(kwh_total)  FILTER (WHERE bucket >= month_start AND is_offpeak), 0) AS month_offpeak_kwh,
+            coalesce(sum(kwh_export) FILTER (WHERE bucket >= month_start), 0) AS month_export_kwh,
+            count(DISTINCT local_day) FILTER (WHERE bucket >= month_start) AS month_days,
+
+            coalesce(sum(kwh_total)  FILTER (WHERE bucket >= year_start), 0) AS year_kwh,
+            coalesce(sum(kwh_total)  FILTER (WHERE bucket >= year_start AND NOT is_offpeak), 0) AS year_peak_kwh,
+            coalesce(sum(kwh_total)  FILTER (WHERE bucket >= year_start AND is_offpeak), 0) AS year_offpeak_kwh,
+            coalesce(sum(kwh_export) FILTER (WHERE bucket >= year_start), 0) AS year_export_kwh,
+            count(DISTINCT local_day) FILTER (WHERE bucket >= year_start) AS year_days
+        FROM classified, edge""", {"tz": LOCAL_TZ})[0]
+
+    def summary_item(prefix: str) -> dict:
+        kwh_import = float(totals[f"{prefix}_kwh"] or 0)
+        kwh_peak = float(totals[f"{prefix}_peak_kwh"] or 0)
+        kwh_offpeak = float(totals[f"{prefix}_offpeak_kwh"] or 0)
+        kwh_export = float(totals[f"{prefix}_export_kwh"] or 0)
+        days_count = int(totals[f"{prefix}_days"] or 0)
+        return {
+            "kwh_import": round(kwh_import, 3),
+            "kwh_import_peak": round(kwh_peak, 3),
+            "kwh_import_offpeak": round(kwh_offpeak, 3),
+            "kwh_export": round(kwh_export, 3),
+            "days_count": days_count,
+            "cost": calculate_cost(
+                kwh_import,
+                kwh_export,
+                price_import,
+                price_export,
+                kwh_import_peak=kwh_peak,
+                kwh_import_offpeak=kwh_offpeak,
+                price_import_offpeak=price_import_offpeak,
+                days_count=days_count,
+                fixed_daily_cost=fixed_daily_cost,
+            ),
+        }
+
+    item_count = count or COST_PERIOD_DEFAULTS[period]
+    offset = item_count - 1
+    params = {
+        "tz": LOCAL_TZ,
+        "unit": period,
+        "days": offset if period == "day" else 0,
+        "weeks": offset if period == "week" else 0,
+        "months": offset if period == "month" else 0,
+        "years": offset if period == "year" else 0,
+    }
+    rows = query("""
+        WITH bounds AS (
+            SELECT (
+                (date_trunc(%(unit)s, now(), %(tz)s) AT TIME ZONE %(tz)s)
+                - make_interval(
+                    days => %(days)s,
+                    weeks => %(weeks)s,
+                    months => %(months)s,
+                    years => %(years)s
+                )
+            ) AT TIME ZONE %(tz)s AS start_at
+        ),
+        grouped AS (
+            SELECT date_trunc(%(unit)s, h.bucket, %(tz)s) AS period_start,
+                   date_trunc('day', h.bucket, %(tz)s) AS local_day,
+                   h.kwh_total,
+                   h.kwh_export,
+                   (extract(isodow FROM h.bucket AT TIME ZONE %(tz)s) IN (6, 7)
+                    OR extract(hour FROM h.bucket AT TIME ZONE %(tz)s) < 7
+                    OR extract(hour FROM h.bucket AT TIME ZONE %(tz)s) >= 23) AS is_offpeak
+            FROM bounds
+            CROSS JOIN LATERAL energy_hourly_range(bounds.start_at) h
+        )
+        SELECT period_start AS start,
+               to_char(period_start AT TIME ZONE %(tz)s, 'YYYY-MM-DD') AS local_date,
+               coalesce(sum(kwh_total), 0) AS kwh_import,
+               coalesce(sum(kwh_total) FILTER (WHERE NOT is_offpeak), 0) AS kwh_import_peak,
+               coalesce(sum(kwh_total) FILTER (WHERE is_offpeak), 0) AS kwh_import_offpeak,
+               coalesce(sum(kwh_export), 0) AS kwh_export,
+               count(DISTINCT local_day) AS days_count
+        FROM grouped
+        GROUP BY period_start
+        ORDER BY period_start""", params)
+
+    entries = [
+        {
+            "start": row["start"],
+            "local_date": row["local_date"],
+            "kwh_import": row["kwh_import"],
+            "kwh_import_peak": row["kwh_import_peak"],
+            "kwh_import_offpeak": row["kwh_import_offpeak"],
+            "kwh_export": row["kwh_export"],
+            "days_count": int(row["days_count"] or 0),
+            "cost": calculate_cost(
+                float(row["kwh_import"] or 0),
+                float(row["kwh_export"] or 0),
+                price_import,
+                price_export,
+                kwh_import_peak=float(row["kwh_import_peak"] or 0),
+                kwh_import_offpeak=float(row["kwh_import_offpeak"] or 0),
+                price_import_offpeak=price_import_offpeak,
+                days_count=int(row["days_count"] or 0),
+                fixed_daily_cost=fixed_daily_cost,
+            ),
+        }
+        for row in rows
+    ]
+
+    return {
+        "period": period,
+        "price_import": price_import,
+        "price_import_offpeak": price_import_offpeak,
+        "price_export": price_export,
+        "fixed_daily_cost": fixed_daily_cost,
+        "summary": {
+            "day": summary_item("day"),
+            "week": summary_item("week"),
+            "month": summary_item("month"),
+            "year": summary_item("year"),
+        },
+        "entries": entries,
+    }
 
 
 @api.get("/settings")
@@ -288,7 +504,17 @@ def register_device(device: Device) -> dict:
     if not valid_device_token(token):
         raise HTTPException(status_code=422, detail="Ongeldig apparaattoken")
     store().register_device(token, device.platform, device.environment)
-    return {"registered": True, "configured": "push" in service().senders}
+    push_sender = service().senders.get("push")
+    response: dict = {"registered": True, "configured": push_sender is not None}
+    if push_sender is not None and device.bundle_id and hasattr(push_sender, "topic"):
+        if device.bundle_id != push_sender.topic:
+            response["warning"] = (
+                f"Bundle-ID komt niet overeen: app gebruikt {device.bundle_id}, "
+                f"maar APNS_BUNDLE_ID op de Pi staat op {push_sender.topic}."
+            )
+    elif push_sender is None and (push_error := getattr(app.state, "push_error", None)):
+        response["warning"] = push_error
+    return response
 
 
 @api.delete("/devices/{token}")
